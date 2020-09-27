@@ -7,11 +7,13 @@ use vulkano::buffer::BufferUsage;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
 use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
 use vulkano::framebuffer::{Framebuffer, RenderPassAbstract, Subpass};
 use vulkano::image::SwapchainImage;
 use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
@@ -92,6 +94,14 @@ fn main() {
     let mut frames = 0;
     let start = std::time::Instant::now();
     let mut rotation: Look = Default::default();
+    let mut pipelines = Pipelines::new(
+        init.vulkan_device.clone(),
+        render_details.render_pass.clone(),
+        &vs,
+        &fs,
+        &lines_vs,
+        &lines_fs,
+    );
 
     init.sdl_context.mouse().set_relative_mouse_mode(true);
     'running: loop {
@@ -128,6 +138,14 @@ fn main() {
             render_details.swapchain_images = new_images;
             render_details.dimensions = dimensions;
             swapchain_needs_recreating = false;
+            pipelines = Pipelines::new(
+                init.vulkan_device.clone(),
+                render_details.render_pass.clone(),
+                &vs,
+                &fs,
+                &lines_vs,
+                &lines_fs,
+            );
         }
 
         let output = render_frame(
@@ -140,10 +158,7 @@ fn main() {
             &render_details.swapchain_images,
             &render_details.render_pass,
             render_details.dimensions,
-            &vs,
-            &fs,
-            &lines_vs,
-            &lines_fs,
+            &pipelines,
             &uniform_buffer_pool,
             (std::time::Instant::now() - start).as_secs_f32(),
             &rotation,
@@ -188,6 +203,67 @@ struct UniformBufferObject {
     t: f32,
 }
 
+/// A container for the various Vulkan graphics pipelines we create.
+struct Pipelines {
+    normal_pipeline: Arc<GraphicsPipeline<
+        SingleBufferDefinition<Vertex>,
+        Box<dyn PipelineLayoutAbstract + Send + Sync>,
+        Arc<dyn RenderPassAbstract + Send + Sync>,
+    >>,
+    lines_pipeline: Arc<GraphicsPipeline<
+        SingleBufferDefinition<Vertex>,
+        Box<dyn PipelineLayoutAbstract + Send + Sync>,
+        Arc<dyn RenderPassAbstract + Send + Sync>,
+    >>,
+}
+
+impl Pipelines {
+    fn new(
+        device: Arc<vulkano::device::Device>,
+        render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+        normal_vs: &vs::Shader,
+        normal_fs: &fs::Shader,
+        lines_vs: &lines::vs::Shader,
+        lines_fs: &lines::fs::Shader,
+    ) -> Pipelines {
+        let normal_pipeline = Arc::new(GraphicsPipeline::start()
+            // Defines what kind of vertex input is expected.
+            .vertex_input_single_buffer::<Vertex>()
+            // The vertex shader.
+            .vertex_shader(normal_vs.main_entry_point(), ())
+            // Defines the viewport (explanations below).
+            .viewports_dynamic_scissors_irrelevant(1)
+            // The fragment shader.
+            .fragment_shader(normal_fs.main_entry_point(), ())
+            // This graphics pipeline object concerns the first pass of the render pass.
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            // Now that everything is specified, we call `build`.
+            .build(device.clone())
+            .unwrap());
+
+        let lines_pipeline = Arc::new(GraphicsPipeline::start()
+            // Defines what kind of vertex input is expected.
+            .vertex_input_single_buffer::<Vertex>()
+            // The vertex shader.
+            .vertex_shader(lines_vs.main_entry_point(), ())
+            // Defines the viewport (explanations below).
+            .viewports_dynamic_scissors_irrelevant(1)
+            // The fragment shader.
+            .fragment_shader(lines_fs.main_entry_point(), ())
+            // This graphics pipeline object concerns the first pass of the render pass.
+            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .line_list()
+            // Now that everything is specified, we call `build`.
+            .build(device)
+            .unwrap());
+
+        Pipelines {
+            normal_pipeline,
+            lines_pipeline,
+        }
+    }
+}
+
 fn render_frame(
     device: &Arc<vulkano::device::Device>,
     queue: &Arc<vulkano::device::Queue>,
@@ -196,10 +272,7 @@ fn render_frame(
     swapchain_images: &[Arc<SwapchainImage<()>>],
     render_pass: &Arc<dyn RenderPassAbstract + Send + Sync>,
     dimensions: [u32; 2],
-    vs: &vs::Shader,
-    fs: &fs::Shader,
-    lines_vs: &lines::vs::Shader,
-    lines_fs: &lines::fs::Shader,
+    pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     t: f32,
     rotation: &Look,
@@ -217,26 +290,6 @@ fn render_frame(
         })
         .collect::<Vec<_>>();
 
-    trace!(target: "render_frame", "Creating pipeline");
-    let pipeline = Arc::new(GraphicsPipeline::start()
-        // Defines what kind of vertex input is expected.
-        .vertex_input_single_buffer::<Vertex>()
-        // The vertex shader.
-        .vertex_shader(vs.main_entry_point(), ())
-        // Defines the viewport (explanations below).
-        .viewports_dynamic_scissors_irrelevant(1)
-        // The fragment shader.
-        .fragment_shader(fs.main_entry_point(), ())
-        // This graphics pipeline object concerns the first pass of the render pass.
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        // Now that everything is specified, we call `build`.
-        .build(device.clone())
-        .unwrap());
-
-    /*
-    let fov_vert = 90. * std::f32::consts::PI / 180.;
-    let fov_horz = fov_vert * (dimensions[0] as f32) / (dimensions[1] as f32);
-    */
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
     let subbuffer = uniform_buffer_pool.next(UniformBufferObject {
@@ -263,7 +316,7 @@ fn render_frame(
         let layout = Arc::new(UnsafeDescriptorSetLayout::new(
             device.clone(),
             [
-                Some(pipeline.descriptor(0, 0).unwrap()),
+                Some(pipelines.normal_pipeline.descriptor(0, 0).unwrap()),
             ].iter().cloned(),
         ).unwrap());
         let pds = PersistentDescriptorSet::<()>::start(layout)
@@ -273,8 +326,6 @@ fn render_frame(
             .unwrap();
         Arc::new(pds)
     };
-
-    //PersistentDescriptorSet::<()>::start(pipeline.layout());
 
     trace!(target: "render_frame", "acquire_next_image");
     let (image_index, _, acquire_future) = {
@@ -342,29 +393,25 @@ fn render_frame(
         lines.into_iter(),
     ).unwrap();
 
-    let lines_pipeline = Arc::new(GraphicsPipeline::start()
-        // Defines what kind of vertex input is expected.
-        .vertex_input_single_buffer::<Vertex>()
-        // The vertex shader.
-        .vertex_shader(lines_vs.main_entry_point(), ())
-        // Defines the viewport (explanations below).
-        .viewports_dynamic_scissors_irrelevant(1)
-        // The fragment shader.
-        .fragment_shader(lines_fs.main_entry_point(), ())
-        // This graphics pipeline object concerns the first pass of the render pass.
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .line_list()
-        // Now that everything is specified, we call `build`.
-        .build(device.clone())
-        .unwrap());
-
     trace!(target: "render_frame", "begin_render_pass");
     builder
         .begin_render_pass(framebuffer.clone(), false, vec![[0.0, 0.25, 1.0, 1.0].into()])
         .unwrap()
-        .draw(pipeline.clone(), &dynamic_state, vertex_buffer.clone(), descriptor_set.clone(), ())
+        .draw(
+            pipelines.normal_pipeline.clone(),
+            &dynamic_state,
+            vertex_buffer.clone(),
+            descriptor_set.clone(),
+            (),
+        )
         .unwrap()
-        .draw(lines_pipeline.clone(), &dynamic_state, lines_vert_buf.clone(), descriptor_set, ())
+        .draw(
+            pipelines.lines_pipeline.clone(),
+            &dynamic_state,
+            lines_vert_buf.clone(),
+            descriptor_set,
+            (),
+        )
         .unwrap()
         .end_render_pass()
         .unwrap();
