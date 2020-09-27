@@ -79,7 +79,7 @@ impl fmt::Debug for Matrix {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if f.alternate() {
             write!(f, "Matrix {{ data: [\n")?;
-            for r in 0 .. 4 {
+            for r in 0..4 {
                 write!(f, "\t{:?}\n", self.data[r])?;
             }
             write!(f, "]}}\n")

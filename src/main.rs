@@ -3,18 +3,18 @@ use std::sync::Arc;
 use log::{debug, info, trace};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use vulkano::buffer::BufferUsage;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
+use vulkano::buffer::BufferUsage;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
 use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
+use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::framebuffer::{Framebuffer, RenderPassAbstract, Subpass};
 use vulkano::image::SwapchainImage;
-use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
+use vulkano::pipeline::GraphicsPipeline;
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
 
@@ -31,7 +31,7 @@ struct Look {
 
 impl Look {
     fn cursor_moved(&mut self, xrel: i32, yrel: i32) {
-        const NINETY_DEG: f32 = std::f32::consts::PI / 2.;  // N.b., it's in radians.
+        const NINETY_DEG: f32 = std::f32::consts::PI / 2.; // N.b., it's in radians.
 
         self.rotation_horz += -(xrel as f32) * degrees_to_radians(1.);
         self.rotation_vert += -(yrel as f32) * degrees_to_radians(1.);
@@ -81,14 +81,15 @@ fn main() {
     let vs = vs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
     let fs = fs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
 
-    let lines_vs = lines::vs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
-    let lines_fs = lines::fs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
+    let lines_vs = lines::vs::Shader::load(init.vulkan_device.clone())
+        .expect("failed to create shader module");
+    let lines_fs = lines::fs::Shader::load(init.vulkan_device.clone())
+        .expect("failed to create shader module");
 
     let uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
 
-    let mut previous_frame_end: Option<Box<dyn GpuFuture>> = Some(Box::new(
-        vulkano::sync::now(init.vulkan_device.clone())
-    ));
+    let mut previous_frame_end: Option<Box<dyn GpuFuture>> =
+        Some(Box::new(vulkano::sync::now(init.vulkan_device.clone())));
     let mut swapchain_needs_recreating = false;
     let mut timer = timing::Timer::start();
     let mut frames = 0;
@@ -205,16 +206,20 @@ struct UniformBufferObject {
 
 /// A container for the various Vulkan graphics pipelines we create.
 struct Pipelines {
-    normal_pipeline: Arc<GraphicsPipeline<
-        SingleBufferDefinition<Vertex>,
-        Box<dyn PipelineLayoutAbstract + Send + Sync>,
-        Arc<dyn RenderPassAbstract + Send + Sync>,
-    >>,
-    lines_pipeline: Arc<GraphicsPipeline<
-        SingleBufferDefinition<Vertex>,
-        Box<dyn PipelineLayoutAbstract + Send + Sync>,
-        Arc<dyn RenderPassAbstract + Send + Sync>,
-    >>,
+    normal_pipeline: Arc<
+        GraphicsPipeline<
+            SingleBufferDefinition<Vertex>,
+            Box<dyn PipelineLayoutAbstract + Send + Sync>,
+            Arc<dyn RenderPassAbstract + Send + Sync>,
+        >,
+    >,
+    lines_pipeline: Arc<
+        GraphicsPipeline<
+            SingleBufferDefinition<Vertex>,
+            Box<dyn PipelineLayoutAbstract + Send + Sync>,
+            Arc<dyn RenderPassAbstract + Send + Sync>,
+        >,
+    >,
 }
 
 impl Pipelines {
@@ -226,36 +231,40 @@ impl Pipelines {
         lines_vs: &lines::vs::Shader,
         lines_fs: &lines::fs::Shader,
     ) -> Pipelines {
-        let normal_pipeline = Arc::new(GraphicsPipeline::start()
-            // Defines what kind of vertex input is expected.
-            .vertex_input_single_buffer::<Vertex>()
-            // The vertex shader.
-            .vertex_shader(normal_vs.main_entry_point(), ())
-            // Defines the viewport (explanations below).
-            .viewports_dynamic_scissors_irrelevant(1)
-            // The fragment shader.
-            .fragment_shader(normal_fs.main_entry_point(), ())
-            // This graphics pipeline object concerns the first pass of the render pass.
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            // Now that everything is specified, we call `build`.
-            .build(device.clone())
-            .unwrap());
+        let normal_pipeline = Arc::new(
+            GraphicsPipeline::start()
+                // Defines what kind of vertex input is expected.
+                .vertex_input_single_buffer::<Vertex>()
+                // The vertex shader.
+                .vertex_shader(normal_vs.main_entry_point(), ())
+                // Defines the viewport (explanations below).
+                .viewports_dynamic_scissors_irrelevant(1)
+                // The fragment shader.
+                .fragment_shader(normal_fs.main_entry_point(), ())
+                // This graphics pipeline object concerns the first pass of the render pass.
+                .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+                // Now that everything is specified, we call `build`.
+                .build(device.clone())
+                .unwrap(),
+        );
 
-        let lines_pipeline = Arc::new(GraphicsPipeline::start()
-            // Defines what kind of vertex input is expected.
-            .vertex_input_single_buffer::<Vertex>()
-            // The vertex shader.
-            .vertex_shader(lines_vs.main_entry_point(), ())
-            // Defines the viewport (explanations below).
-            .viewports_dynamic_scissors_irrelevant(1)
-            // The fragment shader.
-            .fragment_shader(lines_fs.main_entry_point(), ())
-            // This graphics pipeline object concerns the first pass of the render pass.
-            .render_pass(Subpass::from(render_pass, 0).unwrap())
-            .line_list()
-            // Now that everything is specified, we call `build`.
-            .build(device)
-            .unwrap());
+        let lines_pipeline = Arc::new(
+            GraphicsPipeline::start()
+                // Defines what kind of vertex input is expected.
+                .vertex_input_single_buffer::<Vertex>()
+                // The vertex shader.
+                .vertex_shader(lines_vs.main_entry_point(), ())
+                // Defines the viewport (explanations below).
+                .viewports_dynamic_scissors_irrelevant(1)
+                // The fragment shader.
+                .fragment_shader(lines_fs.main_entry_point(), ())
+                // This graphics pipeline object concerns the first pass of the render pass.
+                .render_pass(Subpass::from(render_pass, 0).unwrap())
+                .line_list()
+                // Now that everything is specified, we call `build`.
+                .build(device)
+                .unwrap(),
+        );
 
         Pipelines {
             normal_pipeline,
@@ -348,9 +357,9 @@ fn render_frame(
         viewports: Some(vec![Viewport {
             origin: [0.0, 0.0],
             dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-            depth_range: 0.0 .. 1.0,
+            depth_range: 0.0..1.0,
         }]),
-        .. DynamicState::none()
+        ..DynamicState::none()
     };
 
     // Don't need to do this every frame!
@@ -434,7 +443,7 @@ fn render_frame(
 }
 
 mod vs {
-    vulkano_shaders::shader!{
+    vulkano_shaders::shader! {
         ty: "vertex",
         src: "
 #version 450
@@ -455,7 +464,7 @@ void main() {
 }
 
 mod fs {
-    vulkano_shaders::shader!{
+    vulkano_shaders::shader! {
         ty: "fragment",
         src: "
 #version 450
@@ -470,7 +479,7 @@ void main() {
 
 mod lines {
     pub mod vs {
-        vulkano_shaders::shader!{
+        vulkano_shaders::shader! {
             ty: "vertex",
             src: "
 #version 450
@@ -491,7 +500,7 @@ void main() {
     }
 
     pub mod fs {
-        vulkano_shaders::shader!{
+        vulkano_shaders::shader! {
             ty: "fragment",
             src: "
 #version 450
