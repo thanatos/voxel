@@ -7,6 +7,7 @@ pub mod transformations;
 // repr(C) because vulkano will transmit it to the GPU via memcpy().
 #[repr(C)]
 pub struct Matrix {
+    /// Column-major 2D matrix data
     data: [[f32; 4]; 4],
 }
 
@@ -38,7 +39,32 @@ impl Matrix {
 
 impl From<[[f32; 4]; 4]> for Matrix {
     fn from(matrix: [[f32; 4]; 4]) -> Matrix {
-        Matrix { data: matrix }
+        Matrix { data: [
+            [
+                matrix[0][0],
+                matrix[1][0],
+                matrix[2][0],
+                matrix[3][0],
+            ],
+            [
+                matrix[0][1],
+                matrix[1][1],
+                matrix[2][1],
+                matrix[3][1],
+            ],
+            [
+                matrix[0][2],
+                matrix[1][2],
+                matrix[2][2],
+                matrix[3][2],
+            ],
+            [
+                matrix[0][3],
+                matrix[1][3],
+                matrix[2][3],
+                matrix[3][3],
+            ],
+        ]}
     }
 }
 
@@ -52,7 +78,7 @@ impl std::ops::Mul for Matrix {
         for i in 0..4 {
             for j in 0..4 {
                 for k in 0..4 {
-                    output.data[i][j] += self.data[i][k] * rhs.data[k][j];
+                    output.data[j][i] += self.data[k][i] * rhs.data[j][k];
                 }
             }
         }
@@ -62,9 +88,9 @@ impl std::ops::Mul for Matrix {
 
 impl PartialEq for Matrix {
     fn eq(&self, other: &Matrix) -> bool {
-        for i in 0..4 {
-            for j in 0..4 {
-                if self.data[i][j] != other.data[i][j] {
+        for c in 0..4 {
+            for r in 0..4 {
+                if self.data[c][r] != other.data[c][r] {
                     return false;
                 }
             }

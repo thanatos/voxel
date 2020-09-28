@@ -44,8 +44,8 @@ impl Look {
     }
 
     fn to_matrix(&self) -> Matrix {
-        matrix::transformations::rotate_y(self.rotation_horz)
-            * matrix::transformations::rotate_x(self.rotation_vert)
+        matrix::transformations::rotate_x(self.rotation_vert)
+            * matrix::transformations::rotate_y(self.rotation_horz)
     }
 }
 
@@ -95,6 +95,7 @@ fn main() {
     let mut frames = 0;
     let start = std::time::Instant::now();
     let mut rotation: Look = Default::default();
+    let mut position = (5f32, 5f32);
     let mut pipelines = Pipelines::new(
         init.vulkan_device.clone(),
         render_details.render_pass.clone(),
@@ -111,6 +112,12 @@ fn main() {
                 Event::MouseMotion { xrel, yrel, .. } => {
                     println!("Mouse motion: {:?}, {:?}", xrel, yrel);
                     rotation.cursor_moved(xrel, yrel);
+                }
+                Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
+                    position.0 -= 0.5;
+                }
+                Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
+                    position.0 += 0.5;
                 }
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running
@@ -163,6 +170,7 @@ fn main() {
             &uniform_buffer_pool,
             (std::time::Instant::now() - start).as_secs_f32(),
             &rotation,
+            position,
         );
         match output {
             RendererOutput::Rendering(future) => {
@@ -215,7 +223,7 @@ struct Pipelines {
     >,
     lines_pipeline: Arc<
         GraphicsPipeline<
-            SingleBufferDefinition<Vertex>,
+            SingleBufferDefinition<Line>,
             Box<dyn PipelineLayoutAbstract + Send + Sync>,
             Arc<dyn RenderPassAbstract + Send + Sync>,
         >,
@@ -251,7 +259,7 @@ impl Pipelines {
         let lines_pipeline = Arc::new(
             GraphicsPipeline::start()
                 // Defines what kind of vertex input is expected.
-                .vertex_input_single_buffer::<Vertex>()
+                .vertex_input_single_buffer::<Line>()
                 // The vertex shader.
                 .vertex_shader(lines_vs.main_entry_point(), ())
                 // Defines the viewport (explanations below).
@@ -285,6 +293,7 @@ fn render_frame(
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     t: f32,
     rotation: &Look,
+    position: (f32, f32),
 ) -> RendererOutput {
     trace!(target: "render_frame", "Building framebuffers");
     let framebuffers = swapchain_images
@@ -301,6 +310,7 @@ fn render_frame(
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
+    let translation = matrix::transformations::translate(position.0, 1.5, position.1);
     let subbuffer = uniform_buffer_pool.next(UniformBufferObject {
         model: Matrix::from([
             [0.0, 0.0, 0.0, 0.0],
@@ -308,8 +318,8 @@ fn render_frame(
             [0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0],
         ]),
-        view: rotation.to_matrix(),
-        proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 10.),
+        view: rotation.to_matrix() * translation,
+        proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
         /*
         proj: Matrix::from([
             [0.0, 0.0, 0.0, 0.0],
@@ -387,10 +397,22 @@ fn render_frame(
     let lines = {
         let mut lines = vec![];
         for i in -10i8 .. 10 {
-            lines.push(Vertex { position: [f32::from(i), -10.0] });
-            lines.push(Vertex { position: [f32::from(i), 10.0] });
-            lines.push(Vertex { position: [10.0, f32::from(i)] });
-            lines.push(Vertex { position: [-10.0, f32::from(i)] });
+            lines.push(Line {
+                position: [f32::from(i), -10.0],
+                color: [1., 0., 0.],
+            });
+            lines.push(Line {
+                position: [f32::from(i), 10.0],
+                color: [1., 0., 0.],
+            });
+            lines.push(Line {
+                position: [10.0, f32::from(i)],
+                color: [0., 0., 1.],
+            });
+            lines.push(Line {
+                position: [-10.0, f32::from(i)],
+                color: [0., 0., 1.],
+            });
         }
         lines
     };
@@ -459,6 +481,7 @@ layout(location = 0) in vec2 position;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * vec4(position, sin(ubo.t) * 25 - 25 - 10, 1.0);
+    //gl_Position = ubo.view * ubo.proj * vec4(position, sin(ubo.t) * 25 - 25 - 10, 1.0);
 }"
     }
 }
@@ -492,9 +515,13 @@ layout(binding = 0) uniform UniformBufferObject {
 } ubo;
 
 layout(location = 0) in vec2 position;
+layout(location = 1) in vec3 color;
+
+layout(location = 0) out vec3 color_out;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * vec4(position.x, 0, position.y, 1.0);
+    color_out = color;
 }"
         }
     }
@@ -507,8 +534,11 @@ void main() {
 
 layout(location = 0) out vec4 f_color;
 
+layout(location = 0) in vec3 color_in;
+
 void main() {
-    f_color = vec4(0.0, 1.0, 0.0, 1.0);
+    //f_color = vec4(0.0, 1.0, 0.0, 1.0);
+    f_color = vec4(color_in, 1.0);
 }"
         }
     }
@@ -520,3 +550,11 @@ struct Vertex {
 }
 
 vulkano::impl_vertex!(Vertex, position);
+
+#[derive(Default, Copy, Clone)]
+struct Line {
+    position: [f32; 2],
+    color: [f32; 3],
+}
+
+vulkano::impl_vertex!(Line, position, color);
