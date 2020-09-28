@@ -33,8 +33,8 @@ impl Look {
     fn cursor_moved(&mut self, xrel: i32, yrel: i32) {
         const NINETY_DEG: f32 = std::f32::consts::PI / 2.; // N.b., it's in radians.
 
-        self.rotation_horz += -(xrel as f32) * degrees_to_radians(1.);
-        self.rotation_vert += -(yrel as f32) * degrees_to_radians(1.);
+        self.rotation_horz += (xrel as f32) * degrees_to_radians(1.);
+        self.rotation_vert += (yrel as f32) * degrees_to_radians(1.);
 
         if self.rotation_vert < -NINETY_DEG {
             self.rotation_vert = -NINETY_DEG;
