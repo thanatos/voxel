@@ -18,6 +18,7 @@ use vulkano::pipeline::GraphicsPipeline;
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
 
+mod camera;
 mod init;
 mod matrix;
 mod timing;
@@ -41,11 +42,6 @@ impl Look {
         } else if NINETY_DEG < self.rotation_vert {
             self.rotation_vert = NINETY_DEG;
         }
-    }
-
-    fn to_matrix(&self) -> Matrix {
-        matrix::transformations::rotate_x(self.rotation_vert)
-            * matrix::transformations::rotate_y(self.rotation_horz)
     }
 }
 
@@ -106,18 +102,26 @@ fn main() {
     );
 
     init.sdl_context.mouse().set_relative_mouse_mode(true);
+    let mut rel_mouse = true;
+
     'running: loop {
         for event in init.event_pump.poll_iter() {
             match event {
                 Event::MouseMotion { xrel, yrel, .. } => {
                     println!("Mouse motion: {:?}, {:?}", xrel, yrel);
-                    rotation.cursor_moved(xrel, yrel);
+                    if rel_mouse {
+                        rotation.cursor_moved(xrel, yrel);
+                    }
                 }
                 Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
                     position.0 -= 0.5;
                 }
                 Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
                     position.0 += 0.5;
+                }
+                Event::KeyDown { keycode: Some(Keycode::M), .. } => {
+                    rel_mouse = !rel_mouse;
+                    init.sdl_context.mouse().set_relative_mouse_mode(rel_mouse);
                 }
                 Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running
@@ -169,8 +173,13 @@ fn main() {
             &pipelines,
             &uniform_buffer_pool,
             (std::time::Instant::now() - start).as_secs_f32(),
-            &rotation,
-            position,
+            camera::camera(
+                position.0,
+                1.5,
+                position.1,
+                rotation.rotation_horz,
+                rotation.rotation_vert,
+            ),
         );
         match output {
             RendererOutput::Rendering(future) => {
@@ -292,8 +301,7 @@ fn render_frame(
     pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     t: f32,
-    rotation: &Look,
-    position: (f32, f32),
+    view: Matrix,
 ) -> RendererOutput {
     trace!(target: "render_frame", "Building framebuffers");
     let framebuffers = swapchain_images
@@ -310,7 +318,6 @@ fn render_frame(
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
-    let translation = matrix::transformations::translate(position.0, 1.5, position.1);
     let subbuffer = uniform_buffer_pool.next(UniformBufferObject {
         model: Matrix::from([
             [0.0, 0.0, 0.0, 0.0],
@@ -318,7 +325,7 @@ fn render_frame(
             [0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0],
         ]),
-        view: rotation.to_matrix() * translation,
+        view,
         proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
         /*
         proj: Matrix::from([
@@ -396,7 +403,7 @@ fn render_frame(
 
     let lines = {
         let mut lines = vec![];
-        for i in -10i8 .. 10 {
+        for i in -10i8 ..= 10 {
             lines.push(Line {
                 position: [f32::from(i), -10.0],
                 color: [1., 0., 0.],
