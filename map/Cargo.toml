@@ -1,0 +1,12 @@
+[package]
+name = "voxel_map"
+version = "0.1.0"
+authors = ["Roy Wellington Ⅳ <cactus_hugged@yahoo.com>"]
+edition = "2018"
+
+[dev-dependencies]
+criterion = "0.3.4"
+
+[[bench]]
+name = "octree"
+harness = false
