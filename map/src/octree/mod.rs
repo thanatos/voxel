@@ -5,7 +5,7 @@ mod location_code;
 pub use location_code::{LocationCode, SubCube};
 
 #[derive(Debug)]
-enum OctreeNode<T> {
+pub enum OctreeNode<T> {
     /// This node is present; the given value is there.
     Present(T),
     /// This node in the octree is subdivided into smaller nodes.
@@ -21,13 +21,16 @@ impl<T: Clone> Clone for OctreeNode<T> {
     }
 }
 
-pub trait OctreeBlock: Copy + Eq + PartialEq {
+/// A struct containing information about blocks in the octree. It can either derive this info from
+/// the block itself, or from some sort of list of definitions, e.g., if many blocks share the same
+/// info.
+pub trait BlockInfo<T> {
     /// Does this block (/material) allow itself to be free joined/split by the octree?
     ///
     /// For example: "stone" is the same, and it doesn't matter if an octree joins or splits it.
     /// However, some blocks are complex things (e.g., a machine block) and shouldn't be
     /// joined/split by the tree.
-    fn is_homogeneous(&self) -> bool;
+    fn is_homogeneous(&self, block: &T) -> bool;
 }
 
 /// An octree containing blocks.
@@ -37,31 +40,40 @@ pub trait OctreeBlock: Copy + Eq + PartialEq {
 /// volumes are the "same" block). `T: OctreeBlock`, which is a trait the octree uses to know when
 /// it can and cannot merge or split volumes.
 #[derive(Debug)]
-pub struct BlockOctree<T> {
+pub struct BlockOctree<T, BI> {
     octree: HashMap<LocationCode, OctreeNode<T>>,
+    block_info: BI,
 }
 
-impl<T: Clone> Clone for BlockOctree<T> {
+impl<T: Clone, BI: Clone> Clone for BlockOctree<T, BI> {
     fn clone(&self) -> Self {
         BlockOctree {
             octree: self.octree.clone(),
+            block_info: self.block_info.clone(),
         }
     }
 }
 
-impl<T: Default> BlockOctree<T> {
+impl<T: Default, BI: BlockInfo<T>> BlockOctree<T, BI> {
     /// Create a new `BlockOctree`, with the volume filled with `T::default()`.
-    pub fn new() -> BlockOctree<T> {
+    pub fn new(block_info: BI) -> BlockOctree<T, BI> {
+        Self::with_block(block_info, T::default())
+    }
+}
+
+impl<T, BI: BlockInfo<T>> BlockOctree<T, BI> {
+    pub fn with_block(block_info: BI, root_block: T) -> BlockOctree<T, BI> {
         let mut octree = HashMap::new();
-        octree.insert(LocationCode::ROOT, OctreeNode::Present(T::default()));
+        octree.insert(LocationCode::ROOT, OctreeNode::Present(root_block));
 
         BlockOctree {
             octree,
+            block_info,
         }
     }
 }
 
-impl<T: OctreeBlock> BlockOctree<T> {
+impl<T: Clone + Eq + PartialEq, BI: BlockInfo<T>> BlockOctree<T, BI> {
     /// Iterate through the contents of the tree, in no particular order.
     pub fn iter(&self) -> impl Iterator<Item = (LocationCode, &T)> {
         self.octree.iter().map(|(k, v)| (*k, v)).filter_map(|(k, v)| match v {
@@ -78,6 +90,10 @@ impl<T: OctreeBlock> BlockOctree<T> {
         }
     }
 
+    pub fn get_volume(&self, volume: LocationCode) -> Option<&OctreeNode<T>> {
+        self.octree.get(&volume)
+    }
+
     /// Set a volume of space inside the tree to the given data.
     ///
     /// If there is already something contained in that space, if it is "homogeneous"
@@ -89,7 +105,7 @@ impl<T: OctreeBlock> BlockOctree<T> {
     /// homogeneous value that is set at a larger volume. (The sub-volume is
     /// instantly/merged/consumed.)
     pub fn set_volume(&mut self, volume: LocationCode, data: T) -> bool {
-        let is_homogeneous = data.is_homogeneous();
+        let is_homogeneous = self.block_info.is_homogeneous(&data);
         // Start at the root, and work our way towards our target volume. If at any point we see a
         // matching volume & our target data is homogenous, we can abort: the volume is already
         // that block / material.
@@ -103,8 +119,8 @@ impl<T: OctreeBlock> BlockOctree<T> {
                 OctreeNode::Present(vd) => {
                     if is_homogeneous && *vd == data {
                         return true;
-                    } else if vd.is_homogeneous() {
-                        let new_volume_data = *vd;
+                    } else if self.block_info.is_homogeneous(vd) {
+                        let new_volume_data = vd.clone();
                         self.subdivide(location_code, new_volume_data);
                     } else {
                         // Non-homogeneous, and it's a different size. We consider those different.
@@ -163,7 +179,7 @@ impl<T: OctreeBlock> BlockOctree<T> {
     fn subdivide(&mut self, volume: LocationCode, value: T) {
         for sub_cube in SubCube::all_sub_cubes() {
             let smaller_volume = volume.push_sub_cube(sub_cube);
-            self.octree.insert(smaller_volume, OctreeNode::Present(value));
+            self.octree.insert(smaller_volume, OctreeNode::Present(value.clone()));
         }
         self.octree.insert(volume, OctreeNode::Subdivided);
     }
@@ -229,15 +245,18 @@ mod tests {
         }
     }
 
-    impl super::OctreeBlock for TestBlock {
-        fn is_homogeneous(&self) -> bool {
+    #[derive(Debug)]
+    struct BlockDefs;
+
+    impl super::BlockInfo<TestBlock> for BlockDefs {
+        fn is_homogeneous(&self, block: &TestBlock) -> bool {
             true
         }
     }
 
     #[test]
     fn test_octree() {
-        let mut tree: BlockOctree<TestBlock> = BlockOctree::new();
+        let mut tree: BlockOctree<TestBlock, BlockDefs> = BlockOctree::new(BlockDefs);
 
         println!("Tree before insert: {:#?}", tree);
         let sub_area = LocationCode::ROOT.push_sub_cube(SubCube::LowerNe);

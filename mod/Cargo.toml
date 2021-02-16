@@ -1,0 +1,11 @@
+[package]
+name = "voxel_mod"
+version = "0.1.0"
+authors = ["Roy Wellington Ⅳ <cactus_hugged@yahoo.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.38"
+serde = {version = "1.0.123", features = ["derive"]}
+serde_yaml = "0.8.17"
+structopt = "0.3.21"
