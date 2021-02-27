@@ -158,11 +158,10 @@ impl LocationCode {
         }
     }
 
-    fn to_details(mut self) -> ((u32, u32, u32), u16) {
+    fn to_details(mut self, mut size: u16) -> ((u32, u32, u32), u16) {
         let mut x = 0;
         let mut y = 0;
         let mut z = 0;
-        let mut size = CHUNK_SIDE_DIMENSION;
 
         while self.0 != 1 {
             x <<= 1;
@@ -251,8 +250,6 @@ impl Iterator for FromRootToLocationCode {
 }
 
 impl std::iter::FusedIterator for FromRootToLocationCode {}
-
-pub const CHUNK_SIDE_DIMENSION: u16 = 64u16;
 
 #[cfg(test)]
 mod tests {
