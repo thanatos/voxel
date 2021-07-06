@@ -4,6 +4,7 @@ mod location_code;
 
 pub use location_code::{LocationCode, SubCube};
 
+/// A node in a block octree. Either subdivided into 8, or present with the block data.
 #[derive(Debug)]
 pub enum OctreeNode<T> {
     /// This node is present; the given value is there.
@@ -81,6 +82,14 @@ impl<T: Clone + Eq + PartialEq, BI: BlockInfo<T>> BlockOctree<T, BI> {
             OctreeNode::Subdivided => None,
         })
     }
+
+    /// Iterate through the octree, depth first, returning intermediate levels even if the level is
+    /// subdivided.
+    /*
+    pub fn depth_first_all_levels(&self) -> impl Iterator<Item = (LocationCode, &OctreeNode<T>)> {
+        unimplemented!()
+    }
+    */
 
     /// Iterate through the contents of the tree, depth first.
     pub fn depth_first_blocks(&self) -> impl Iterator<Item = (LocationCode, &T)> {
@@ -249,7 +258,7 @@ mod tests {
     struct BlockDefs;
 
     impl super::BlockInfo<TestBlock> for BlockDefs {
-        fn is_homogeneous(&self, block: &TestBlock) -> bool {
+        fn is_homogeneous(&self, _block: &TestBlock) -> bool {
             true
         }
     }

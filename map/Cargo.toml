@@ -5,6 +5,13 @@ authors = ["Roy Wellington Ⅳ <cactus_hugged@yahoo.com>"]
 edition = "2018"
 
 [dependencies]
+brotli2 = "0.3.2"
+rusqlite = "0.24.2"
+serde = "1.0.123"
+serde_bytes = "0.11.5"
+serde_cbor = "0.11.1"
+thiserror = "1.0.24"
+
 voxel_mod = {path = "../mod"}
 
 [dev-dependencies]

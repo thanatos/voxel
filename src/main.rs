@@ -143,7 +143,7 @@ fn main() {
                     Ok(r) => r,
                     // These happen. Examples ignore them. What exactly is going on here?
                     Err(SwapchainCreationError::UnsupportedDimensions) => continue,
-                    Err(err) => panic!(err),
+                    Err(err) => panic!("error recreating swapchain: {}", err),
                 }
             };
             render_details.swapchain = new_swapchain;

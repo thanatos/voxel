@@ -1,6 +1,8 @@
 [workspace]
 members = [
+	"assembly-script",
 	"map",
+	"map_gen",
 	"mod",
 ]
 

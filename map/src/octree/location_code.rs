@@ -33,6 +33,17 @@ impl SubCube {
         }
     }
 
+    pub fn from_xyz(x: u8, y: u8, z: u8) -> Option<SubCube> {
+        if 1 < x || 1 < y || 1 < z {
+            None
+        } else {
+            let code = (y << 2)
+                | (z << 1)
+                | x;
+            Some(Self::from_bits(code))
+        }
+    }
+
     pub(crate) fn to_bits(self) -> u8 {
         use SubCube::*;
 
