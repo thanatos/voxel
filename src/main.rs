@@ -72,7 +72,10 @@ fn main() {
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let fov_horz = fov_vert * (1. as f32) / (1. as f32);
-    println!("{:#?}", matrix::projection::perspective_fov_both(fov_horz, fov_vert, 0.1, 10.));
+    println!(
+        "{:#?}",
+        matrix::projection::perspective_fov_both(fov_horz, fov_vert, 0.1, 10.)
+    );
 
     let vs = vs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
     let fs = fs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
@@ -113,19 +116,30 @@ fn main() {
                         rotation.cursor_moved(xrel, yrel);
                     }
                 }
-                Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
+                Event::KeyDown {
+                    keycode: Some(Keycode::Left),
+                    ..
+                } => {
                     position.0 -= 0.5;
                 }
-                Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
+                Event::KeyDown {
+                    keycode: Some(Keycode::Right),
+                    ..
+                } => {
                     position.0 += 0.5;
                 }
-                Event::KeyDown { keycode: Some(Keycode::M), .. } => {
+                Event::KeyDown {
+                    keycode: Some(Keycode::M),
+                    ..
+                } => {
                     rel_mouse = !rel_mouse;
                     init.sdl_context.mouse().set_relative_mouse_mode(rel_mouse);
                 }
-                Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    break 'running
-                }
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
                 event => {
                     println!("Unknown event: {:?}", event);
                 }
@@ -139,7 +153,10 @@ fn main() {
                 [new_width, new_height]
             };
             let (new_swapchain, new_images) = {
-                match render_details.swapchain.recreate_with_dimensions(dimensions) {
+                match render_details
+                    .swapchain
+                    .recreate_with_dimensions(dimensions)
+                {
                     Ok(r) => r,
                     // These happen. Examples ignore them. What exactly is going on here?
                     Err(SwapchainCreationError::UnsupportedDimensions) => continue,
@@ -198,7 +215,12 @@ fn main() {
             println!("checking: {:?}", mark);
             if 2 <= mark.as_secs() {
                 let fps = frames as f64 / mark.as_secs_f64();
-                debug!("{} FPS ({} frames over {}s)", fps, frames, mark.as_secs_f64());
+                debug!(
+                    "{} FPS ({} frames over {}s)",
+                    fps,
+                    frames,
+                    mark.as_secs_f64()
+                );
                 frames = 0;
                 timer = timing::Timer::start();
             }
@@ -318,33 +340,38 @@ fn render_frame(
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
-    let subbuffer = uniform_buffer_pool.next(UniformBufferObject {
-        model: Matrix::from([
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-        ]),
-        view,
-        proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
-        /*
-        proj: Matrix::from([
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-        ]),
-        */
-        t,
-    }).unwrap();
+    let subbuffer = uniform_buffer_pool
+        .next(UniformBufferObject {
+            model: Matrix::from([
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ]),
+            view,
+            proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
+            /*
+            proj: Matrix::from([
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ]),
+            */
+            t,
+        })
+        .unwrap();
 
     let descriptor_set = {
-        let layout = Arc::new(UnsafeDescriptorSetLayout::new(
-            device.clone(),
-            [
-                Some(pipelines.normal_pipeline.descriptor(0, 0).unwrap()),
-            ].iter().cloned(),
-        ).unwrap());
+        let layout = Arc::new(
+            UnsafeDescriptorSetLayout::new(
+                device.clone(),
+                [Some(pipelines.normal_pipeline.descriptor(0, 0).unwrap())]
+                    .iter()
+                    .cloned(),
+            )
+            .unwrap(),
+        );
         let pds = PersistentDescriptorSet::<()>::start(layout)
             .add_buffer(subbuffer)
             .unwrap()
@@ -365,10 +392,8 @@ fn render_frame(
     let framebuffer = &framebuffers[image_index];
 
     trace!(target: "render_frame", "AutoCommandBufferBuilder");
-    let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
-        device.clone(),
-        queue.family()
-    ).unwrap();
+    let mut builder =
+        AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap();
 
     let dynamic_state = DynamicState {
         viewports: Some(vec![Viewport {
@@ -395,15 +420,19 @@ fn render_frame(
             Vertex { position: [ 0.0,  4.] },
             Vertex { position: [ 4., -2.] },
             */
-            Vertex { position: [-4., 0.] },
+            Vertex {
+                position: [-4., 0.],
+            },
             Vertex { position: [0., 4.] },
             Vertex { position: [4., 0.] },
-        ].into_iter(),
-    ).unwrap();
+        ]
+        .into_iter(),
+    )
+    .unwrap();
 
     let lines = {
         let mut lines = vec![];
-        for i in -10i8 ..= 10 {
+        for i in -10i8..=10 {
             lines.push(Line {
                 position: [f32::from(i), -10.0],
                 color: [1., 0., 0.],
@@ -429,7 +458,8 @@ fn render_frame(
         BufferUsage::vertex_buffer(),
         false,
         lines.into_iter(),
-    ).unwrap();
+    )
+    .unwrap();
 
     trace!(target: "render_frame", "begin_render_pass");
     builder

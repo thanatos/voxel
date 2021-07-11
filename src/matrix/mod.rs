@@ -39,32 +39,14 @@ impl Matrix {
 
 impl From<[[f32; 4]; 4]> for Matrix {
     fn from(matrix: [[f32; 4]; 4]) -> Matrix {
-        Matrix { data: [
-            [
-                matrix[0][0],
-                matrix[1][0],
-                matrix[2][0],
-                matrix[3][0],
+        Matrix {
+            data: [
+                [matrix[0][0], matrix[1][0], matrix[2][0], matrix[3][0]],
+                [matrix[0][1], matrix[1][1], matrix[2][1], matrix[3][1]],
+                [matrix[0][2], matrix[1][2], matrix[2][2], matrix[3][2]],
+                [matrix[0][3], matrix[1][3], matrix[2][3], matrix[3][3]],
             ],
-            [
-                matrix[0][1],
-                matrix[1][1],
-                matrix[2][1],
-                matrix[3][1],
-            ],
-            [
-                matrix[0][2],
-                matrix[1][2],
-                matrix[2][2],
-                matrix[3][2],
-            ],
-            [
-                matrix[0][3],
-                matrix[1][3],
-                matrix[2][3],
-                matrix[3][3],
-            ],
-        ]}
+        }
     }
 }
 
@@ -104,11 +86,11 @@ impl Eq for Matrix {}
 impl fmt::Debug for Matrix {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if f.alternate() {
-            write!(f, "Matrix {{ data: [\n")?;
+            writeln!(f, "Matrix {{ data: [")?;
             for r in 0..4 {
-                write!(f, "\t{:?}\n", self.data[r])?;
+                writeln!(f, "\t{:?}", self.data[r])?;
             }
-            write!(f, "]}}\n")
+            writeln!(f, "]}}")
         } else {
             write!(f, "Matrix {{ data: {:?} }}", &self.data)
         }
