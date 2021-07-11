@@ -475,6 +475,7 @@ fn render_frame(
             vertex_buffer.clone(),
             descriptor_set.clone(),
             (),
+            std::iter::empty(),
         )
         .unwrap()
         .draw(
@@ -483,6 +484,7 @@ fn render_frame(
             lines_vert_buf.clone(),
             descriptor_set,
             (),
+            std::iter::empty(),
         )
         .unwrap()
         .end_render_pass()
