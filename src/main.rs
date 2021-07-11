@@ -6,7 +6,7 @@ use sdl2::keyboard::Keycode;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::BufferUsage;
-use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
 use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
 use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
 use vulkano::descriptor::PipelineLayoutAbstract;
@@ -433,7 +433,11 @@ fn render_frame(
 
     trace!(target: "render_frame", "begin_render_pass");
     builder
-        .begin_render_pass(framebuffer.clone(), false, vec![[0.0, 0.25, 1.0, 1.0].into()])
+        .begin_render_pass(
+            framebuffer.clone(),
+            SubpassContents::Inline,
+            vec![[0.0, 0.25, 1.0, 1.0].into()],
+        )
         .unwrap()
         .draw(
             pipelines.normal_pipeline.clone(),
