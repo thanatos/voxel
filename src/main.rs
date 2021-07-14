@@ -12,6 +12,7 @@ use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
 use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::framebuffer::{Framebuffer, RenderPassAbstract, Subpass};
 use vulkano::image::SwapchainImage;
+use vulkano::image::view::ImageView;
 use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::GraphicsPipeline;
@@ -329,8 +330,9 @@ fn render_frame(
     let framebuffers = swapchain_images
         .iter()
         .map(|image| {
+            let image_view = ImageView::new(image.clone()).unwrap();
             let fb = Framebuffer::start(render_pass.clone())
-                .add(image.clone())
+                .add(image_view)
                 .unwrap()
                 .build()
                 .unwrap();
