@@ -6,10 +6,10 @@ use std::sync::Arc;
 use log::{debug, info, trace};
 use sdl2::video::Window;
 use vulkano::device::{Device, Features, Queue};
-use vulkano::framebuffer::RenderPassAbstract;
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
-use vulkano::swapchain::{CompositeAlpha, FullscreenExclusive, PresentMode, Surface, Swapchain};
+use vulkano::render_pass::RenderPass;
+use vulkano::swapchain::{Surface, Swapchain};
 use vulkano::VulkanObject;
 
 pub struct Init {
@@ -54,7 +54,7 @@ impl Drop for Init {
 pub struct RenderDetails {
     pub swapchain: Arc<Swapchain<()>>,
     pub swapchain_images: Vec<Arc<SwapchainImage<()>>>,
-    pub render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+    pub render_pass: Arc<RenderPass>,
     pub dimensions: [u32; 2],
 }
 
@@ -148,30 +148,15 @@ pub fn init_render_details(
             .current_extent
             .expect("Unable to get surface extent for swapchain.");
 
-        let (swapchain, images) = Swapchain::new(
-            device.clone(),
-            surface,
-            buffers_count, // num_images
-            format,
-            dimensions,
-            // According to https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain,
-            // layers is used for stereoscopic stuff, and is always 1 for normal stuff.
-            1, // layers
-            usage,
-            // sharing // Sharing mode; giving a single queue equates to `SharingMode::Exclusive`
-            queue,
-            caps.current_transform,
-            // TODO: Why is this needed? What's a transparent pixel on the screen?
-            CompositeAlpha::Opaque,
-            // TODO
-            PresentMode::Fifo,
-            // TODO
-            FullscreenExclusive::Default,
-            // TODO: what's this?
-            true, // clipped; "Clip parts of the buffer which aren't visible"
-            color_space,
-        )
-        .expect("Failed to create swapchain");
+        let (swapchain, images) = Swapchain::start(device.clone(), surface)
+            .num_images(buffers_count)
+            .format(format)
+            .dimensions(dimensions)
+            .usage(usage)
+            .transform(caps.current_transform)
+            .color_space(color_space)
+            .build()
+            .expect("Failed to create swapchain");
 
         (swapchain, images, dimensions, format)
     };

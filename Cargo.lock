@@ -1182,9 +1182,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b34b537d0050076f22526f6aab0ee53b1aae135d9d13ac5acd9cf3d916940c7"
+checksum = "285e8ffaef22610e649f67b7c68fd9c8fe34d6540ccc283fd603b86be6610a82"
 dependencies = [
  "crossbeam-queue",
  "fnv",
@@ -1198,9 +1198,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano-shaders"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76800854ca8014e9758473de4e85a364d469b5ab6f8e59a2d753ce0f3f6588b4"
+checksum = "e0a9a5aec58764a35dca4eae0aa48f6d09d5757754a26e4c24a286f989b08334"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -10,12 +10,12 @@ use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassCon
 use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
 use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
 use vulkano::descriptor::PipelineLayoutAbstract;
-use vulkano::framebuffer::{Framebuffer, RenderPassAbstract, Subpass};
-use vulkano::image::SwapchainImage;
 use vulkano::image::view::ImageView;
+use vulkano::image::SwapchainImage;
 use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::GraphicsPipeline;
+use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
 
@@ -156,7 +156,9 @@ fn main() {
             let (new_swapchain, new_images) = {
                 match render_details
                     .swapchain
-                    .recreate_with_dimensions(dimensions)
+                    .recreate()
+                    .dimensions(dimensions)
+                    .build()
                 {
                     Ok(r) => r,
                     // These happen. Examples ignore them. What exactly is going on here?
@@ -250,14 +252,12 @@ struct Pipelines {
         GraphicsPipeline<
             SingleBufferDefinition<Vertex>,
             Box<dyn PipelineLayoutAbstract + Send + Sync>,
-            Arc<dyn RenderPassAbstract + Send + Sync>,
         >,
     >,
     lines_pipeline: Arc<
         GraphicsPipeline<
             SingleBufferDefinition<Line>,
             Box<dyn PipelineLayoutAbstract + Send + Sync>,
-            Arc<dyn RenderPassAbstract + Send + Sync>,
         >,
     >,
 }
@@ -265,7 +265,7 @@ struct Pipelines {
 impl Pipelines {
     fn new(
         device: Arc<vulkano::device::Device>,
-        render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+        render_pass: Arc<RenderPass>,
         normal_vs: &vs::Shader,
         normal_fs: &fs::Shader,
         lines_vs: &lines::vs::Shader,
@@ -319,7 +319,7 @@ fn render_frame(
     previous_frame_end: Box<dyn GpuFuture>,
     swapchain: &Arc<Swapchain<()>>,
     swapchain_images: &[Arc<SwapchainImage<()>>],
-    render_pass: &Arc<dyn RenderPassAbstract + Send + Sync>,
+    render_pass: &Arc<RenderPass>,
     dimensions: [u32; 2],
     pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
@@ -394,8 +394,12 @@ fn render_frame(
     let framebuffer = &framebuffers[image_index];
 
     trace!(target: "render_frame", "AutoCommandBufferBuilder");
-    let mut builder =
-        AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap();
+    let mut builder = AutoCommandBufferBuilder::primary(
+        device.clone(),
+        queue.family(),
+        vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
 
     let dynamic_state = DynamicState {
         viewports: Some(vec![Viewport {
