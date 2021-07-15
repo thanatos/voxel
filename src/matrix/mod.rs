@@ -6,6 +6,7 @@ pub mod transformations;
 /// A 4x4 matrix of single-precision floats.
 // repr(C) because vulkano will transmit it to the GPU via memcpy().
 #[repr(C)]
+#[derive(Clone)]
 pub struct Matrix {
     /// Column-major 2D matrix data
     data: [[f32; 4]; 4],

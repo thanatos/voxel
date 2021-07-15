@@ -7,14 +7,12 @@ use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::BufferUsage;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
-use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
-use vulkano::descriptor::pipeline_layout::PipelineLayoutDesc;
-use vulkano::descriptor::PipelineLayoutAbstract;
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
@@ -239,6 +237,7 @@ enum RendererOutput {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 struct UniformBufferObject {
     model: Matrix,
     view: Matrix,
@@ -248,18 +247,8 @@ struct UniformBufferObject {
 
 /// A container for the various Vulkan graphics pipelines we create.
 struct Pipelines {
-    normal_pipeline: Arc<
-        GraphicsPipeline<
-            SingleBufferDefinition<Vertex>,
-            Box<dyn PipelineLayoutAbstract + Send + Sync>,
-        >,
-    >,
-    lines_pipeline: Arc<
-        GraphicsPipeline<
-            SingleBufferDefinition<Line>,
-            Box<dyn PipelineLayoutAbstract + Send + Sync>,
-        >,
-    >,
+    normal_pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Vertex>>>,
+    lines_pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Line>>>,
 }
 
 impl Pipelines {
@@ -342,40 +331,41 @@ fn render_frame(
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
-    let subbuffer = uniform_buffer_pool
-        .next(UniformBufferObject {
-            model: Matrix::from([
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-            ]),
-            view,
-            proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
-            /*
-            proj: Matrix::from([
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-            ]),
-            */
-            t,
-        })
-        .unwrap();
+    let ubo = UniformBufferObject {
+        model: Matrix::from([
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+        ]),
+        view,
+        proj: matrix::projection::perspective_fov(fov_vert, aspect, 0.1, 80.),
+        /*
+        proj: Matrix::from([
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+        ]),
+        */
+        t,
+    };
+    let subbuffer_normal = uniform_buffer_pool.next(ubo.clone()).unwrap();
+    let subbuffer_lines = uniform_buffer_pool.next(ubo).unwrap();
 
-    let descriptor_set = {
-        let layout = Arc::new(
-            UnsafeDescriptorSetLayout::new(
-                device.clone(),
-                [Some(pipelines.normal_pipeline.descriptor(0, 0).unwrap())]
-                    .iter()
-                    .cloned(),
-            )
-            .unwrap(),
-        );
+    let descriptor_set_normal = {
+        let layout = pipelines.normal_pipeline.layout().descriptor_set_layout(0).unwrap().clone();
         let pds = PersistentDescriptorSet::<()>::start(layout)
-            .add_buffer(subbuffer)
+            .add_buffer(subbuffer_normal)
+            .unwrap()
+            .build()
+            .unwrap();
+        Arc::new(pds)
+    };
+    let descriptor_set_lines = {
+        let layout = pipelines.lines_pipeline.layout().descriptor_set_layout(0).unwrap().clone();
+        let pds = PersistentDescriptorSet::<()>::start(layout)
+            .add_buffer(subbuffer_lines)
             .unwrap()
             .build()
             .unwrap();
@@ -479,7 +469,7 @@ fn render_frame(
             pipelines.normal_pipeline.clone(),
             &dynamic_state,
             vertex_buffer.clone(),
-            descriptor_set.clone(),
+            descriptor_set_normal,
             (),
             std::iter::empty(),
         )
@@ -488,7 +478,7 @@ fn render_frame(
             pipelines.lines_pipeline.clone(),
             &dynamic_state,
             lines_vert_buf.clone(),
-            descriptor_set,
+            descriptor_set_lines,
             (),
             std::iter::empty(),
         )

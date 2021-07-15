@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::convert::TryFrom;
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
@@ -7,10 +8,10 @@ use log::{debug, info, trace};
 use sdl2::video::Window;
 use vulkano::device::{Device, Features, Queue};
 use vulkano::image::{ImageUsage, SwapchainImage};
-use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
+use vulkano::instance::{self, Instance, InstanceExtensions, PhysicalDevice};
 use vulkano::render_pass::RenderPass;
 use vulkano::swapchain::{Surface, Swapchain};
-use vulkano::VulkanObject;
+use vulkano::{Handle, VulkanObject};
 
 pub struct Init {
     pub sdl_context: sdl2::Sdl,
@@ -74,21 +75,34 @@ pub fn init_sdl_and_vulkan() -> Init {
         .build()
         .unwrap();
     trace!("SDL window created.");
-    let instance_extensions = window.vulkan_instance_extensions().unwrap();
-    let raw_instance_extensions = RawInstanceExtensions::new(
-        instance_extensions
-            .iter()
-            .map(|&v| CString::new(v).unwrap()),
-    );
+    let instance_extensions = window
+        .vulkan_instance_extensions()
+        .unwrap()
+        .into_iter()
+        .map(|v| CString::new(v).unwrap())
+        .collect::<Vec<_>>();
+    let instance_extensions =
+        InstanceExtensions::from(instance_extensions.iter().map(|v| v.as_c_str()));
 
-    let (instance, device, queue) = init_vulkan(raw_instance_extensions);
+    let (instance, device, queue) = init_vulkan(&instance_extensions);
 
     trace!("Creating surface in SDL.");
     let surface_handle = window
-        .vulkan_create_surface(instance.internal_object())
+        .vulkan_create_surface({
+            // FIXME: `ash`, which is the raw-bindings that Vulkano uses internally, thinks all
+            // Vulkan handles, like `Instance`, are `u64`. They're not: they're opaque pointers.
+            // `usize` would be a more appropriate type, and `u64` is flat out wrong on 32-bit
+            // platforms.
+            let ash_handle = instance.internal_object().as_raw();
+            usize::try_from(ash_handle).expect("this should never fail")
+        })
         .unwrap();
     trace!("Surface created in SDL.");
-    let surface = unsafe { Surface::from_raw_surface(instance.clone(), surface_handle, ()) };
+    let surface = {
+        let ash_surface = ash::vk::SurfaceKHR::from_raw(surface_handle);
+        let instance_clone = instance.clone();
+        unsafe { Surface::from_raw_surface(instance_clone, ash_surface, ()) }
+    };
     trace!("Vulkan Surface created from SDL surface.");
     let surface = ManuallyDrop::new(Arc::new(surface));
     // NOTE: Do not add failures / exits from here to function end.
@@ -188,17 +202,17 @@ pub fn init_render_details(
     }
 }
 
-fn init_vulkan<Ext: Into<RawInstanceExtensions>>(
-    ext: Ext,
-) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
-    let instance = Instance::new(None, ext, None).expect("failed to create Vulkan instance");
+fn init_vulkan(ext: &InstanceExtensions) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
+    let instance = Instance::new(None, instance::Version::V1_1, ext, None)
+        .expect("failed to create Vulkan instance");
 
     for physical_device in PhysicalDevice::enumerate(&instance) {
+        let properties = physical_device.properties();
         debug!(
             "Physical device: {} / {:?}\n  type: {:?}\n  API version: {:?}",
-            physical_device.name(),
+            properties.device_name.as_deref().unwrap_or("?unknown?"),
             physical_device,
-            physical_device.ty(),
+            properties.device_type,
             physical_device.api_version(),
         );
     }
