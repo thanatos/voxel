@@ -213,7 +213,6 @@ fn main() {
 
         if frames & 0x3 == 0 {
             let mark = timer.mark();
-            println!("checking: {:?}", mark);
             if 2 <= mark.as_secs() {
                 let fps = frames as f64 / mark.as_secs_f64();
                 debug!(
