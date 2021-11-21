@@ -8,10 +8,10 @@ use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::BufferUsage;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
-use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
+use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
-use vulkano::pipeline::vertex::SingleBufferDefinition;
+use vulkano::pipeline::vertex::BuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
@@ -254,8 +254,8 @@ struct UniformBufferObject {
 
 /// A container for the various Vulkan graphics pipelines we create.
 struct Pipelines {
-    normal_pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Vertex>>>,
-    lines_pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Line>>>,
+    normal_pipeline: Arc<GraphicsPipeline<BuffersDefinition>>,
+    lines_pipeline: Arc<GraphicsPipeline<BuffersDefinition>>,
 }
 
 impl Pipelines {
@@ -361,7 +361,7 @@ fn render_frame(
     let subbuffer_lines = uniform_buffer_pool.next(ubo).unwrap();
 
     let descriptor_set_normal = {
-        let layout = pipelines.normal_pipeline.layout().descriptor_set_layout(0).unwrap().clone();
+        let layout = pipelines.normal_pipeline.layout().descriptor_set_layouts()[0].clone();
         let pds = PersistentDescriptorSet::<()>::start(layout)
             .add_buffer(subbuffer_normal)
             .unwrap()
@@ -370,7 +370,7 @@ fn render_frame(
         Arc::new(pds)
     };
     let descriptor_set_lines = {
-        let layout = pipelines.lines_pipeline.layout().descriptor_set_layout(0).unwrap().clone();
+        let layout = pipelines.lines_pipeline.layout().descriptor_set_layouts()[0].clone();
         let pds = PersistentDescriptorSet::<()>::start(layout)
             .add_buffer(subbuffer_lines)
             .unwrap()
@@ -478,7 +478,6 @@ fn render_frame(
             vertex_buffer.clone(),
             descriptor_set_normal,
             (),
-            std::iter::empty(),
         )
         .unwrap()
         .draw(
@@ -487,7 +486,6 @@ fn render_frame(
             lines_vert_buf.clone(),
             descriptor_set_lines,
             (),
-            std::iter::empty(),
         )
         .unwrap()
         .end_render_pass()

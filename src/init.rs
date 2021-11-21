@@ -8,9 +8,9 @@ use std::sync::Arc;
 use log::{debug, info, trace};
 use sdl2::video::Window;
 use uuid::Uuid;
-use vulkano::device::{Device, Features, Queue};
+use vulkano::device::{Device, Features, Queue, physical::PhysicalDevice};
 use vulkano::image::{ImageUsage, SwapchainImage};
-use vulkano::instance::{self, Instance, InstanceExtensions, PhysicalDevice};
+use vulkano::instance::{self, Instance, InstanceExtensions};
 use vulkano::render_pass::RenderPass;
 use vulkano::swapchain::{Surface, Swapchain};
 use vulkano::{Handle, VulkanObject};
@@ -220,7 +220,7 @@ fn init_vulkan(
         };
         debug!(
             "Physical device: {} / {:?}\n  ID: {}\n  type: {:?}\n  API version: {:?}",
-            properties.device_name.as_deref().unwrap_or("?unknown?"),
+            properties.device_name,
             physical_device,
             device_id,
             properties.device_type,
