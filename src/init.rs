@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::convert::TryFrom;
 use std::ffi::CString;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 
 use log::{debug, info, trace};
 use sdl2::video::Window;
+use uuid::Uuid;
 use vulkano::device::{Device, Features, Queue};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{self, Instance, InstanceExtensions, PhysicalDevice};
@@ -59,7 +61,7 @@ pub struct RenderDetails {
     pub dimensions: [u32; 2],
 }
 
-pub fn init_sdl_and_vulkan() -> Init {
+pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
     let sdl_context = sdl2::init().expect("Failed to initialize SDL.");
     debug!("SDL initialized.");
 
@@ -84,7 +86,7 @@ pub fn init_sdl_and_vulkan() -> Init {
     let instance_extensions =
         InstanceExtensions::from(instance_extensions.iter().map(|v| v.as_c_str()));
 
-    let (instance, device, queue) = init_vulkan(&instance_extensions);
+    let (instance, device, queue) = init_vulkan(&instance_extensions, select_device);
 
     trace!("Creating surface in SDL.");
     let surface_handle = window
@@ -202,24 +204,42 @@ pub fn init_render_details(
     }
 }
 
-fn init_vulkan(ext: &InstanceExtensions) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
+fn init_vulkan(
+    ext: &InstanceExtensions,
+    select_device: Option<Uuid>,
+) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
     let instance = Instance::new(None, instance::Version::V1_1, ext, None)
         .expect("failed to create Vulkan instance");
 
     for physical_device in PhysicalDevice::enumerate(&instance) {
         let properties = physical_device.properties();
+        let device_id = match properties.device_uuid {
+            Some(b) => Cow::from(Uuid::from_slice(&b).unwrap().to_string()),
+            None => Cow::from("None"),
+        };
         debug!(
-            "Physical device: {} / {:?}\n  type: {:?}\n  API version: {:?}",
+            "Physical device: {} / {:?}\n  ID: {}\n  type: {:?}\n  API version: {:?}",
             properties.device_name.as_deref().unwrap_or("?unknown?"),
             physical_device,
+            device_id,
             properties.device_type,
             physical_device.api_version(),
         );
     }
 
-    let physical_device = PhysicalDevice::enumerate(&instance)
-        .next()
-        .expect("Failed to select Vulkan physical device");
+    let physical_device = if let Some(id) = select_device {
+        PhysicalDevice::enumerate(&instance)
+            .filter(|pd| {
+                pd.properties()
+                    .device_uuid
+                    .map(|id| Uuid::from_slice(&id).unwrap())
+                    == Some(id)
+            })
+            .next()
+    } else {
+        PhysicalDevice::enumerate(&instance).next()
+    };
+    let physical_device = physical_device.expect("Failed to select Vulkan physical device");
     debug!("Selected first device: {:?}", physical_device);
 
     for family in physical_device.queue_families() {

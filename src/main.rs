@@ -3,6 +3,7 @@ use std::sync::Arc;
 use log::{debug, info, trace};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::BufferUsage;
@@ -57,11 +58,18 @@ fn degrees_to_radians(degrees: f32) -> f32 {
     degrees * std::f32::consts::PI / 180.
 }
 
+#[derive(StructOpt)]
+struct Args {
+    #[structopt(long)]
+    use_gpu_with_uuid: Option<uuid::Uuid>,
+}
+
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    let args = Args::from_args();
 
     info!("init_sdl_and_vulkan()");
-    let mut init = init::init_sdl_and_vulkan();
+    let mut init = init::init_sdl_and_vulkan(args.use_gpu_with_uuid);
     info!("init_render_details()");
     let mut render_details = init::init_render_details(
         init.vulkan_device.clone(),
