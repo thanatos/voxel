@@ -1013,16 +1013,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
 
 [[package]]
-name = "spirv_headers"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f5b132530b1ac069df335577e3581765995cba5a13995cdbbdbc8fb057c532c"
-dependencies = [
- "bitflags",
- "num-traits",
-]
-
-[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1231,9 +1221,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e631daf0d54bf36908ccff9f38ced7ff253a327e396ac13503a11401bee8c38"
+checksum = "4e0c9cc7471d065c6066b2a0daaae4232a100fdb6f0aad2a4b12652a2bd8ede0"
 dependencies = [
  "ash",
  "crossbeam-queue",
@@ -1243,7 +1233,11 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "parking_lot",
+ "proc-macro2",
+ "quote",
  "regex",
+ "serde",
+ "serde_json",
  "shared_library",
  "smallvec",
  "vk-parse",
@@ -1251,16 +1245,15 @@ dependencies = [
 
 [[package]]
 name = "vulkano-shaders"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f45834e124ae0fdc95a358d83f163d9b14e9ec7780d99cd5aecbf4e76b1a67e"
+checksum = "e097b198fe4fe15adeeae709a7d2d209259cfb9035c05e0c3726e34c1177a646"
 dependencies = [
- "num-traits",
  "proc-macro2",
  "quote",
  "shaderc",
- "spirv_headers",
  "syn",
+ "vulkano",
 ]
 
 [[package]]

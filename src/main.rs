@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use log::{debug, info, trace};
@@ -6,14 +7,13 @@ use sdl2::keyboard::Keycode;
 use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
-use vulkano::buffer::BufferUsage;
-use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
+use vulkano::buffer::{BufferUsage, TypedBufferAccess};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, SubpassContents};
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
-use vulkano::pipeline::vertex::BuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
+use vulkano::pipeline::{GraphicsPipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
@@ -254,8 +254,8 @@ struct UniformBufferObject {
 
 /// A container for the various Vulkan graphics pipelines we create.
 struct Pipelines {
-    normal_pipeline: Arc<GraphicsPipeline<BuffersDefinition>>,
-    lines_pipeline: Arc<GraphicsPipeline<BuffersDefinition>>,
+    normal_pipeline: Arc<GraphicsPipeline>,
+    lines_pipeline: Arc<GraphicsPipeline>,
 }
 
 impl Pipelines {
@@ -357,25 +357,25 @@ fn render_frame(
         */
         t,
     };
-    let subbuffer_normal = uniform_buffer_pool.next(ubo.clone()).unwrap();
-    let subbuffer_lines = uniform_buffer_pool.next(ubo).unwrap();
+    let subbuffer_normal = Arc::new(uniform_buffer_pool.next(ubo.clone()).unwrap());
+    let subbuffer_lines = Arc::new(uniform_buffer_pool.next(ubo).unwrap());
 
     let descriptor_set_normal = {
         let layout = pipelines.normal_pipeline.layout().descriptor_set_layouts()[0].clone();
-        let pds = PersistentDescriptorSet::<()>::start(layout)
-            .add_buffer(subbuffer_normal)
-            .unwrap()
-            .build()
-            .unwrap();
+        let pds = {
+            let mut builder = PersistentDescriptorSet::start(layout);
+            builder.add_buffer(subbuffer_normal).unwrap();
+            builder.build().unwrap()
+        };
         Arc::new(pds)
     };
     let descriptor_set_lines = {
         let layout = pipelines.lines_pipeline.layout().descriptor_set_layouts()[0].clone();
-        let pds = PersistentDescriptorSet::<()>::start(layout)
-            .add_buffer(subbuffer_lines)
-            .unwrap()
-            .build()
-            .unwrap();
+        let pds = {
+            let mut builder = PersistentDescriptorSet::start(layout);
+            builder.add_buffer(subbuffer_lines).unwrap();
+            builder.build().unwrap()
+        };
         Arc::new(pds)
     };
 
@@ -398,13 +398,10 @@ fn render_frame(
     )
     .unwrap();
 
-    let dynamic_state = DynamicState {
-        viewports: Some(vec![Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-            depth_range: 0.0..1.0,
-        }]),
-        ..DynamicState::none()
+    let viewport = Viewport {
+        origin: [0.0, 0.0],
+        dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+        depth_range: 0.0..1.0,
     };
 
     // Don't need to do this every frame!
@@ -472,21 +469,26 @@ fn render_frame(
             vec![[0.0, 0.25, 1.0, 1.0].into()],
         )
         .unwrap()
-        .draw(
-            pipelines.normal_pipeline.clone(),
-            &dynamic_state,
-            vertex_buffer.clone(),
+        .set_viewport(0, [viewport])
+        .bind_pipeline_graphics(pipelines.normal_pipeline.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            pipelines.normal_pipeline.layout().clone(),
+            0,
             descriptor_set_normal,
-            (),
         )
+        .bind_vertex_buffers(0, vertex_buffer.clone())
+        .draw(vertex_buffer.len().try_into().unwrap(), 1, 0, 0)
         .unwrap()
-        .draw(
-            pipelines.lines_pipeline.clone(),
-            &dynamic_state,
-            lines_vert_buf.clone(),
+        .bind_pipeline_graphics(pipelines.lines_pipeline.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            pipelines.lines_pipeline.layout().clone(),
+            0,
             descriptor_set_lines,
-            (),
         )
+        .bind_vertex_buffers(0, lines_vert_buf.clone())
+        .draw(lines_vert_buf.len().try_into().unwrap(), 1, 0, 0)
         .unwrap()
         .end_render_pass()
         .unwrap();
