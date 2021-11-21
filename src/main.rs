@@ -224,7 +224,7 @@ fn main() {
             if 2 <= mark.as_secs() {
                 let fps = frames as f64 / mark.as_secs_f64();
                 debug!(
-                    "{} FPS ({} frames over {}s)",
+                    "{:.3} FPS ({} frames over {}s)",
                     fps,
                     frames,
                     mark.as_secs_f64()

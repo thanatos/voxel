@@ -152,6 +152,7 @@ pub fn init_render_details(
         // TODO: Do we need to be more aware of this value, or can we just render into whatever we
         // get and not care? It seems like we'd *have* to care?
         let (format, color_space) = caps.supported_formats[0];
+        debug!("[TODO] Selected first format: {:?}", (format, color_space));
 
         // TODO: figure this out
         // The created swapchain will be used as a color attachment for rendering.
