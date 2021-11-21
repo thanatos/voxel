@@ -50,6 +50,9 @@ impl octree::BlockInfo<OctreeBlock> for BlockInfo {
     }
 }
 
+/// A 3D cube representing a subsection of the world.
+///
+/// Chunks are 64×64×64 cubes of blocks. (See [`CHUNK_SIDE_LENGTH`].)
 pub struct Chunk {
     octree: octree::BlockOctree<OctreeBlock, BlockInfo>,
 }
@@ -62,7 +65,8 @@ pub struct ChunkRelativeCoord {
     z: u8,
 }
 
-const CHUNK_SIDE_LENGTH: u8 = 64;
+/// The length of the side of a chunk.
+pub const CHUNK_SIDE_LENGTH: u8 = 64;
 
 impl ChunkRelativeCoord {
     pub fn new(x: u8, y: u8, z: u8) -> ChunkRelativeCoord {

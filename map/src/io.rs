@@ -10,6 +10,14 @@ use voxel_mod::ModuleBlockDefinition;
 use crate::octree::{LocationCode, OctreeNode, SubCube};
 use crate::Chunk;
 
+// Below, we construct a map from block definitions, to the ID we will give that type of block in
+// the encoded chunk. This wrapper does Eq & Hash on the address/pointer of the reference to that
+// block definition, not on the block definition itself (which doesn't implement either Eq or Hash,
+// and would likely be far more expensive). Since the idea is that we store block defs. only once,
+// and use Arcs to refer to them, the same block def. should always have the same memory address
+// (at least, for the duration of encoding the chunk; we only use this to build the definition → ID
+// mapping. Once that's build, the final palette records the module's string ID & the block within
+// that module's string ID.).
 #[derive(Debug)]
 struct HashableRef<'a, T>(Option<&'a T>);
 
@@ -47,6 +55,8 @@ struct ChunkOnDisk<'a> {
 }
 
 fn write_chunk_octree(chunk: &Chunk) -> ChunkOnDisk {
+    // Iterate through the blocks in the chunk, and assign integer IDs to the various types of
+    // blocks in this chunk.
     let mut palette = Vec::<Option<&ModuleBlockDefinition>>::new();
     let mut block_ids = HashMap::<HashableRef<ModuleBlockDefinition>, u32>::new();
 
@@ -74,6 +84,8 @@ fn write_chunk_octree(chunk: &Chunk) -> ChunkOnDisk {
      * }
      * ```
      */
+
+    // Encode the octree:
 
     let mut blocks = Vec::new();
     let mut current_location = LocationCode::ROOT;
@@ -118,6 +130,11 @@ fn write_chunk_octree(chunk: &Chunk) -> ChunkOnDisk {
     }
 }
 
+/// Write a varint; this is not a CBOR varint, this is just used for encoding block IDs in the
+/// encoded octree. The varint is encoded as least-significant bits first (so, sort of
+/// little-endian), with the most-significant bit of each byte reserved: it is set if more bytes
+/// follow. Each byte thus carries 7 bits, of increasing significance. This function only handles
+/// u32s, as that's all the octree needs.
 fn write_varint<W: Write>(mut write: W, n: u32) -> io::Result<()> {
     if n < 0b0111_1111
     /* 7 bits */
