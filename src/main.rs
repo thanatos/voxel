@@ -12,9 +12,12 @@ use vulkano::command_buffer::{AutoCommandBufferBuilder, SubpassContents};
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
-use vulkano::pipeline::viewport::Viewport;
-use vulkano::pipeline::{GraphicsPipeline, PipelineBindPoint};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
+use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
+use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
+use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
 use vulkano::sync::{FlushError, GpuFuture};
 
@@ -84,12 +87,12 @@ fn main() {
         matrix::projection::perspective_fov_both(fov_horz, fov_vert, 0.1, 10.)
     );
 
-    let vs = vs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
-    let fs = fs::Shader::load(init.vulkan_device.clone()).expect("failed to create shader module");
+    let vs = vs::load(init.vulkan_device.clone()).expect("failed to create shader module");
+    let fs = fs::load(init.vulkan_device.clone()).expect("failed to create shader module");
 
-    let lines_vs = lines::vs::Shader::load(init.vulkan_device.clone())
+    let lines_vs = lines::vs::load(init.vulkan_device.clone())
         .expect("failed to create shader module");
-    let lines_fs = lines::fs::Shader::load(init.vulkan_device.clone())
+    let lines_fs = lines::fs::load(init.vulkan_device.clone())
         .expect("failed to create shader module");
 
     let uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
@@ -262,45 +265,41 @@ impl Pipelines {
     fn new(
         device: Arc<vulkano::device::Device>,
         render_pass: Arc<RenderPass>,
-        normal_vs: &vs::Shader,
-        normal_fs: &fs::Shader,
-        lines_vs: &lines::vs::Shader,
-        lines_fs: &lines::fs::Shader,
+        normal_vs: &ShaderModule,
+        normal_fs: &ShaderModule,
+        lines_vs: &ShaderModule,
+        lines_fs: &ShaderModule,
     ) -> Pipelines {
-        let normal_pipeline = Arc::new(
-            GraphicsPipeline::start()
-                // Defines what kind of vertex input is expected.
-                .vertex_input_single_buffer::<Vertex>()
-                // The vertex shader.
-                .vertex_shader(normal_vs.main_entry_point(), ())
-                // Defines the viewport (explanations below).
-                .viewports_dynamic_scissors_irrelevant(1)
-                // The fragment shader.
-                .fragment_shader(normal_fs.main_entry_point(), ())
-                // This graphics pipeline object concerns the first pass of the render pass.
-                .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-                // Now that everything is specified, we call `build`.
-                .build(device.clone())
-                .unwrap(),
-        );
+        let normal_pipeline = GraphicsPipeline::start()
+            // Defines what kind of vertex input is expected.
+            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+            // The vertex shader.
+            .vertex_shader(normal_vs.entry_point("main").unwrap(), ())
+            // Defines the viewport (explanations below).
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            // The fragment shader.
+            .fragment_shader(normal_fs.entry_point("main").unwrap(), ())
+            // This graphics pipeline object concerns the first pass of the render pass.
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            // Now that everything is specified, we call `build`.
+            .build(device.clone())
+            .unwrap();
 
-        let lines_pipeline = Arc::new(
-            GraphicsPipeline::start()
-                // Defines what kind of vertex input is expected.
-                .vertex_input_single_buffer::<Line>()
-                // The vertex shader.
-                .vertex_shader(lines_vs.main_entry_point(), ())
-                // Defines the viewport (explanations below).
-                .viewports_dynamic_scissors_irrelevant(1)
-                // The fragment shader.
-                .fragment_shader(lines_fs.main_entry_point(), ())
-                // This graphics pipeline object concerns the first pass of the render pass.
-                .render_pass(Subpass::from(render_pass, 0).unwrap())
-                .line_list()
-                // Now that everything is specified, we call `build`.
-                .build(device)
-                .unwrap(),
-        );
+        let lines_pipeline = GraphicsPipeline::start()
+            // Defines what kind of vertex input is expected.
+            .vertex_input_state(BuffersDefinition::new().vertex::<Line>())
+            // The vertex shader.
+            .vertex_shader(lines_vs.entry_point("main").unwrap(), ())
+            // Defines the viewport (explanations below).
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            // The fragment shader.
+            .fragment_shader(lines_fs.entry_point("main").unwrap(), ())
+            // This graphics pipeline object concerns the first pass of the render pass.
+            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineList))
+            // Now that everything is specified, we call `build`.
+            .build(device)
+            .unwrap();
 
         Pipelines {
             normal_pipeline,
@@ -332,7 +331,7 @@ fn render_frame(
                 .unwrap()
                 .build()
                 .unwrap();
-            Arc::new(fb)
+            fb
         })
         .collect::<Vec<_>>();
 
@@ -362,21 +361,19 @@ fn render_frame(
 
     let descriptor_set_normal = {
         let layout = pipelines.normal_pipeline.layout().descriptor_set_layouts()[0].clone();
-        let pds = {
+        {
             let mut builder = PersistentDescriptorSet::start(layout);
             builder.add_buffer(subbuffer_normal).unwrap();
             builder.build().unwrap()
-        };
-        Arc::new(pds)
+        }
     };
     let descriptor_set_lines = {
         let layout = pipelines.lines_pipeline.layout().descriptor_set_layouts()[0].clone();
-        let pds = {
+        {
             let mut builder = PersistentDescriptorSet::start(layout);
             builder.add_buffer(subbuffer_lines).unwrap();
             builder.build().unwrap()
-        };
-        Arc::new(pds)
+        }
     };
 
     trace!(target: "render_frame", "acquire_next_image");

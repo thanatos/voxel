@@ -179,24 +179,24 @@ pub fn init_render_details(
     };
 
     // Render pass
-    let render_pass = Arc::new(
-        vulkano::single_pass_renderpass!(device,
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    //format: vulkano::format::Format::R8G8B8A8Unorm,
-                    format: format,
-                    samples: 1,
-                }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {}
+    let render_pass = vulkano::single_pass_renderpass!(
+        device,
+        attachments: {
+            color: {
+                load: Clear,
+                store: Store,
+                //format: vulkano::format::Format::R8G8B8A8Unorm,
+                format: format,
+                samples: 1,
             }
-        )
-        .unwrap(),
-    );
+        },
+        pass: {
+            color: [color],
+            depth_stencil: {}
+        }
+    )
+    .unwrap();
+
     RenderDetails {
         swapchain,
         swapchain_images: images,
