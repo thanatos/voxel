@@ -9,7 +9,7 @@ use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, TypedBufferAccess};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, SubpassContents};
-use vulkano::descriptor_set::PersistentDescriptorSet;
+use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
@@ -362,17 +362,15 @@ fn render_frame(
     let descriptor_set_normal = {
         let layout = pipelines.normal_pipeline.layout().descriptor_set_layouts()[0].clone();
         {
-            let mut builder = PersistentDescriptorSet::start(layout);
-            builder.add_buffer(subbuffer_normal).unwrap();
-            builder.build().unwrap()
+            let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_normal);
+            PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
         }
     };
     let descriptor_set_lines = {
         let layout = pipelines.lines_pipeline.layout().descriptor_set_layouts()[0].clone();
         {
-            let mut builder = PersistentDescriptorSet::start(layout);
-            builder.add_buffer(subbuffer_lines).unwrap();
-            builder.build().unwrap()
+            let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_lines);
+            PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
         }
     };
 
