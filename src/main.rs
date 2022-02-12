@@ -24,6 +24,7 @@ use vulkano::sync::{FlushError, GpuFuture};
 mod camera;
 mod init;
 mod matrix;
+mod png;
 mod timing;
 
 use matrix::Matrix;
