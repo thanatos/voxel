@@ -18,7 +18,7 @@ use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
-use vulkano::swapchain::{AcquireError, Swapchain, SwapchainCreationError};
+use vulkano::swapchain::{AcquireError, Swapchain};
 use vulkano::sync::{FlushError, GpuFuture};
 
 mod camera;
@@ -71,15 +71,15 @@ struct Args {
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args = Args::from_args();
+    info!("voxel started.");
 
     info!("init_sdl_and_vulkan()");
     let mut init = init::init_sdl_and_vulkan(args.use_gpu_with_uuid);
     info!("init_render_details()");
-    let mut render_details = init::init_render_details(
+    let mut render_details = init::RenderDetails::init(
         init.vulkan_device.clone(),
-        &init.queue,
         init.surface().clone(),
-    );
+    ).unwrap();
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let fov_horz = fov_vert * (1. as f32) / (1. as f32);
@@ -158,36 +158,22 @@ fn main() {
         }
 
         if swapchain_needs_recreating {
-            debug!("Recreating swap chain");
-            let dimensions = {
-                let (new_width, new_height) = init.window().size();
-                [new_width, new_height]
-            };
-            let (new_swapchain, new_images) = {
-                match render_details
-                    .swapchain
-                    .recreate()
-                    .dimensions(dimensions)
-                    .build()
-                {
-                    Ok(r) => r,
-                    // These happen. Examples ignore them. What exactly is going on here?
-                    Err(SwapchainCreationError::UnsupportedDimensions) => continue,
-                    Err(err) => panic!("error recreating swapchain: {}", err),
+            match render_details.recreate_swapchain(&init) {
+                Ok(true) => {
+                    swapchain_needs_recreating = false;
+                    pipelines = Pipelines::new(
+                        init.vulkan_device.clone(),
+                        render_details.render_pass.clone(),
+                        &vs,
+                        &fs,
+                        &lines_vs,
+                        &lines_fs,
+                    );
                 }
-            };
-            render_details.swapchain = new_swapchain;
-            render_details.swapchain_images = new_images;
-            render_details.dimensions = dimensions;
-            swapchain_needs_recreating = false;
-            pipelines = Pipelines::new(
-                init.vulkan_device.clone(),
-                render_details.render_pass.clone(),
-                &vs,
-                &fs,
-                &lines_vs,
-                &lines_fs,
-            );
+                // These happen. Examples ignore them. What exactly is going on here?
+                Ok(false) => continue,
+                Err(err) => panic!("error recreating swapchain: {}", err),
+            }
         }
 
         let output = render_frame(

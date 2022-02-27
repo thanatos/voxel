@@ -8,7 +8,7 @@ use std::sync::Arc;
 use log::{debug, info, trace};
 use sdl2::video::Window;
 use uuid::Uuid;
-use vulkano::device::{Device, Features, Queue, physical::PhysicalDevice};
+use vulkano::device::{physical::PhysicalDevice, Device, Features, Queue};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{self, Instance, InstanceExtensions};
 use vulkano::render_pass::RenderPass;
@@ -52,13 +52,6 @@ impl Drop for Init {
             ManuallyDrop::drop(&mut self.window);
         }
     }
-}
-
-pub struct RenderDetails {
-    pub swapchain: Arc<Swapchain<()>>,
-    pub swapchain_images: Vec<Arc<SwapchainImage<()>>>,
-    pub render_pass: Arc<RenderPass>,
-    pub dimensions: [u32; 2],
 }
 
 pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
@@ -123,85 +116,127 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
     }
 }
 
-pub fn init_render_details(
-    device: Arc<Device>,
-    queue: &Arc<Queue>,
-    surface: Arc<Surface<()>>,
-) -> RenderDetails {
-    info!("Creating RenderDetails…");
+pub struct RenderDetails {
+    pub swapchain: Arc<Swapchain<()>>,
+    pub swapchain_images: Vec<Arc<SwapchainImage<()>>>,
+    pub render_pass: Arc<RenderPass>,
+    pub dimensions: [u32; 2],
+}
 
-    // Swapchain
-    let (swapchain, images, dimensions, format) = {
-        trace!("Querying surface capabilities");
-        let caps = surface
-            .capabilities(device.physical_device())
-            .expect("Failed to query device capabilities");
+#[derive(Debug, thiserror::Error)]
+pub enum RenderDetailsError {
+    #[error("failed to query surface capabilities: {0}")]
+    FailedToQueryDeviceCapabilities(vulkano::swapchain::CapabilitiesError),
+    #[error("the surface's .current_extent was None; we expect the surface to have an extent")]
+    ExpectedSurfaceToHaveExtent,
+    #[error("failed to create Swapchain: {0}")]
+    FailedToCreateSwapchain(vulkano::swapchain::SwapchainCreationError),
+    #[error("failed to create RenderPass: {0}")]
+    FailedToCreateRenderPass(vulkano::render_pass::RenderPassCreationError),
+}
 
-        debug!("Supported formats");
-        for supported_format in &caps.supported_formats {
-            debug!("  {:?}", supported_format);
-        }
+impl RenderDetails {
+    pub fn init(
+        device: Arc<Device>,
+        surface: Arc<Surface<()>>,
+    ) -> Result<RenderDetails, RenderDetailsError> {
+        info!("Creating RenderDetails…");
 
-        // Try to use double-buffering.
-        let buffers_count = match caps.max_image_count {
-            None => max(2, caps.min_image_count),
-            Some(limit) => min(max(2, caps.min_image_count), limit),
-        };
+        // Swapchain
+        let (swapchain, images, dimensions, format) = {
+            trace!("Querying surface capabilities");
+            let caps = surface
+                .capabilities(device.physical_device())
+                .map_err(RenderDetailsError::FailedToQueryDeviceCapabilities)?;
 
-        // Just use the first format
-        // TODO: Do we need to be more aware of this value, or can we just render into whatever we
-        // get and not care? It seems like we'd *have* to care?
-        let (format, color_space) = caps.supported_formats[0];
-        debug!("[TODO] Selected first format: {:?}", (format, color_space));
-
-        // TODO: figure this out
-        // The created swapchain will be used as a color attachment for rendering.
-        let usage = ImageUsage {
-            color_attachment: true,
-            ..ImageUsage::none()
-        };
-
-        let dimensions = caps
-            .current_extent
-            .expect("Unable to get surface extent for swapchain.");
-
-        let (swapchain, images) = Swapchain::start(device.clone(), surface)
-            .num_images(buffers_count)
-            .format(format)
-            .dimensions(dimensions)
-            .usage(usage)
-            .transform(caps.current_transform)
-            .color_space(color_space)
-            .build()
-            .expect("Failed to create swapchain");
-
-        (swapchain, images, dimensions, format)
-    };
-
-    // Render pass
-    let render_pass = vulkano::single_pass_renderpass!(
-        device,
-        attachments: {
-            color: {
-                load: Clear,
-                store: Store,
-                //format: vulkano::format::Format::R8G8B8A8Unorm,
-                format: format,
-                samples: 1,
+            debug!("Supported formats");
+            for supported_format in &caps.supported_formats {
+                debug!("  {:?}", supported_format);
             }
-        },
-        pass: {
-            color: [color],
-            depth_stencil: {}
-        }
-    )
-    .unwrap();
 
-    RenderDetails {
-        swapchain,
-        swapchain_images: images,
-        render_pass,
-        dimensions,
+            // Try to use double-buffering.
+            let buffers_count = match caps.max_image_count {
+                None => max(2, caps.min_image_count),
+                Some(limit) => min(max(2, caps.min_image_count), limit),
+            };
+
+            // Just use the first format
+            // TODO: Do we need to be more aware of this value, or can we just render into whatever we
+            // get and not care? It seems like we'd *have* to care?
+            let (format, color_space) = caps.supported_formats[0];
+            debug!("[TODO] Selected first format: {:?}", (format, color_space));
+
+            // TODO: figure this out
+            // The created swapchain will be used as a color attachment for rendering.
+            let usage = ImageUsage {
+                color_attachment: true,
+                ..ImageUsage::none()
+            };
+
+            let dimensions = caps
+                .current_extent
+                .ok_or_else(|| RenderDetailsError::ExpectedSurfaceToHaveExtent)?;
+
+            let (swapchain, images) = Swapchain::start(device.clone(), surface)
+                .num_images(buffers_count)
+                .format(format)
+                .dimensions(dimensions)
+                .usage(usage)
+                .transform(caps.current_transform)
+                .color_space(color_space)
+                .build()
+                .map_err(RenderDetailsError::FailedToCreateSwapchain)?;
+
+            (swapchain, images, dimensions, format)
+        };
+
+        // Render pass
+        let render_pass = vulkano::single_pass_renderpass!(
+            device,
+            attachments: {
+                color: {
+                    load: Clear,
+                    store: Store,
+                    //format: vulkano::format::Format::R8G8B8A8Unorm,
+                    format: format,
+                    samples: 1,
+                }
+            },
+            pass: {
+                color: [color],
+                depth_stencil: {}
+            }
+        )
+        .map_err(RenderDetailsError::FailedToCreateRenderPass)?;
+
+        Ok(RenderDetails {
+            swapchain,
+            swapchain_images: images,
+            render_pass,
+            dimensions,
+        })
+    }
+
+    pub fn recreate_swapchain(
+        &mut self,
+        init: &Init,
+    ) -> Result<bool, vulkano::swapchain::SwapchainCreationError> {
+        debug!("Recreating swap chain");
+        let dimensions = {
+            let (new_width, new_height) = init.window().size();
+            [new_width, new_height]
+        };
+        match self.swapchain.recreate().dimensions(dimensions).build() {
+            Ok((new_swapchain, new_images)) => {
+                self.swapchain = new_swapchain;
+                self.swapchain_images = new_images;
+                self.dimensions = dimensions;
+                Ok(true)
+            }
+            // These happen. Examples ignore them. What exactly is going on here?
+            Err(vulkano::swapchain::SwapchainCreationError::UnsupportedDimensions) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 }
 
