@@ -1,9 +1,10 @@
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
 use log::{debug, info, trace};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use smallvec::SmallVec;
 use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
@@ -13,6 +14,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
@@ -25,7 +27,9 @@ mod camera;
 mod init;
 mod matrix;
 mod png;
+mod resources;
 mod timing;
+mod text_rendering;
 
 use matrix::Matrix;
 
@@ -81,6 +85,10 @@ fn main() {
         init.surface().clone(),
     ).unwrap();
 
+    info!("Loading resources…");
+    let resources = resources::Fonts::init().unwrap();
+    info!("Loaded resources.");
+
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let fov_horz = fov_vert * (1. as f32) / (1. as f32);
     println!(
@@ -91,12 +99,18 @@ fn main() {
     let vs = vs::load(init.vulkan_device.clone()).expect("failed to create shader module");
     let fs = fs::load(init.vulkan_device.clone()).expect("failed to create shader module");
 
-    let lines_vs = lines::vs::load(init.vulkan_device.clone())
-        .expect("failed to create shader module");
-    let lines_fs = lines::fs::load(init.vulkan_device.clone())
-        .expect("failed to create shader module");
+    let lines_vs =
+        lines::vs::load(init.vulkan_device.clone()).expect("failed to create shader module");
+    let lines_fs =
+        lines::fs::load(init.vulkan_device.clone()).expect("failed to create shader module");
+
+    let blit_vs =
+        blit::vs::load(init.vulkan_device.clone()).expect("failed to create shader module");
+    let blit_fs =
+        blit::fs::load(init.vulkan_device.clone()).expect("failed to create shader module");
 
     let uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
+    let blit_uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
 
     let mut previous_frame_end: Option<Box<dyn GpuFuture>> =
         Some(Box::new(vulkano::sync::now(init.vulkan_device.clone())));
@@ -113,6 +127,8 @@ fn main() {
         &fs,
         &lines_vs,
         &lines_fs,
+        &blit_vs,
+        &blit_fs,
     );
 
     init.sdl_context.mouse().set_relative_mouse_mode(true);
@@ -168,6 +184,8 @@ fn main() {
                         &fs,
                         &lines_vs,
                         &lines_fs,
+                        &blit_vs,
+                        &blit_fs,
                     );
                 }
                 // These happen. Examples ignore them. What exactly is going on here?
@@ -188,6 +206,7 @@ fn main() {
             render_details.dimensions,
             &pipelines,
             &uniform_buffer_pool,
+            &blit_uniform_buffer_pool,
             (std::time::Instant::now() - start).as_secs_f32(),
             camera::camera(
                 position.0,
@@ -196,6 +215,7 @@ fn main() {
                 rotation.rotation_horz,
                 rotation.rotation_vert,
             ),
+            &resources,
         );
         match output {
             RendererOutput::Rendering(future) => {
@@ -242,10 +262,38 @@ struct UniformBufferObject {
     t: f32,
 }
 
+#[repr(C)]
+#[derive(Clone)]
+struct BlitUniform {
+    proj: Matrix,
+}
+
+fn screen_quad_to_triangle_fan(pos: (u32, u32), size: (u32, u32)) -> SmallVec<[BlitImageVertex; 4]> {
+    let mut vertexes = smallvec::SmallVec::new();
+    vertexes.push(BlitImageVertex {
+        position: [pos.0, pos.1 + size.1],
+        texture_coord: [0., 1.],
+    });
+    vertexes.push(BlitImageVertex {
+        position: [pos.0, pos.1],
+        texture_coord: [0., 0.],
+    });
+    vertexes.push(BlitImageVertex {
+        position: [pos.0 + size.0, pos.1 + size.1],
+        texture_coord: [1., 1.],
+    });
+    vertexes.push(BlitImageVertex {
+        position: [pos.0 + size.0, pos.1],
+        texture_coord: [1., 0.],
+    });
+    vertexes
+}
+
 /// A container for the various Vulkan graphics pipelines we create.
 struct Pipelines {
     normal_pipeline: Arc<GraphicsPipeline>,
     lines_pipeline: Arc<GraphicsPipeline>,
+    blit_pipeline: Arc<GraphicsPipeline>,
 }
 
 impl Pipelines {
@@ -256,6 +304,8 @@ impl Pipelines {
         normal_fs: &ShaderModule,
         lines_vs: &ShaderModule,
         lines_fs: &ShaderModule,
+        blit_vs: &ShaderModule,
+        blit_fs: &ShaderModule,
     ) -> Pipelines {
         let normal_pipeline = GraphicsPipeline::start()
             // Defines what kind of vertex input is expected.
@@ -282,8 +332,27 @@ impl Pipelines {
             // The fragment shader.
             .fragment_shader(lines_fs.entry_point("main").unwrap(), ())
             // This graphics pipeline object concerns the first pass of the render pass.
-            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineList))
+            // Now that everything is specified, we call `build`.
+            .build(device.clone())
+            .unwrap();
+
+        let blit_pipeline = GraphicsPipeline::start()
+            // Defines what kind of vertex input is expected.
+            .vertex_input_state(BuffersDefinition::new().vertex::<BlitImageVertex>())
+            // The vertex shader.
+            .vertex_shader(blit_vs.entry_point("main").unwrap(), ())
+            // Defines the viewport (explanations below).
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            // The fragment shader.
+            .fragment_shader(blit_fs.entry_point("main").unwrap(), ())
+            // This graphics pipeline object concerns the first pass of the render pass.
+            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .color_blend_state(ColorBlendState::default().blend_alpha())
+            .input_assembly_state(
+                InputAssemblyState::new().topology(PrimitiveTopology::TriangleStrip),
+            )
             // Now that everything is specified, we call `build`.
             .build(device)
             .unwrap();
@@ -291,6 +360,7 @@ impl Pipelines {
         Pipelines {
             normal_pipeline,
             lines_pipeline,
+            blit_pipeline,
         }
     }
 }
@@ -305,8 +375,10 @@ fn render_frame(
     dimensions: [u32; 2],
     pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
+    blit_uniform_buffer_pool: &CpuBufferPool<BlitUniform>,
     t: f32,
     view: Matrix,
+    resources: &resources::Fonts,
 ) -> RendererOutput {
     trace!(target: "render_frame", "Building framebuffers");
     let framebuffers = swapchain_images
@@ -443,6 +515,72 @@ fn render_frame(
     )
     .unwrap();
 
+    let (image, (image_w, image_h), image_future) = {
+        let t_image = text_rendering::render_text("Hello, world.", &resources.deja_vu).unwrap();
+        let pixels = {
+            let mut pixels = Vec::with_capacity(t_image.pixels().len() * 4);
+            for pixel in t_image.pixels() {
+                pixels.push(0);
+                pixels.push(255);
+                pixels.push(0);
+                pixels.push(*pixel);
+            }
+            pixels
+        };
+        let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
+            queue.device().clone(),
+            BufferUsage::transfer_source(),
+            false, // host_cached
+            //pixel_iter,
+            //pixels.iter().copied(),
+            t_image.pixels().iter().map(|p| (0u8, 255u8, 0u8, *p)),
+        )
+        .unwrap();
+        let width = u32::try_from(t_image.width()).unwrap();
+        let height = u32::try_from(t_image.height()).unwrap();
+        let dimensions = vulkano::image::ImageDimensions::Dim2d {
+            width,
+            height,
+            array_layers: 1,
+        };
+        let (image, future) = vulkano::image::ImmutableImage::from_buffer(
+            rgba_pixel_data,
+            dimensions,
+            vulkano::image::MipmapsCount::One,
+            vulkano::format::Format::R8G8B8A8_UNORM,
+            //vulkano::image::ImageLayout::ShaderReadOnlyOptimal,
+            queue.clone(),
+        )
+        .unwrap();
+        (image, (width, height), future)
+    };
+
+    let blits_vert_buf = {
+        let blits = screen_quad_to_triangle_fan((32, 5), (image_w, image_h));
+
+        CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::vertex_buffer(),
+            false,
+            blits.into_iter(),
+        )
+        .unwrap()
+    };
+    let descriptor_set_blits = {
+        let blit_uniform = BlitUniform {
+            proj: crate::matrix::screen_matrix(dimensions[0], dimensions[1]),
+        };
+        let subbuffer_blit = blit_uniform_buffer_pool.next(blit_uniform).unwrap();
+        let layout = pipelines.blit_pipeline.layout().descriptor_set_layouts()[0].clone();
+        {
+            let write_buffer = WriteDescriptorSet::buffer(0, subbuffer_blit);
+            let sampler = vulkano::sampler::Sampler::simple_repeat_linear_no_mipmap(device.clone()).unwrap();
+            let image_view = vulkano::image::view::ImageView::new(image.clone()).unwrap();
+            let write_sampler = WriteDescriptorSet::image_view_sampler(1, image_view, sampler);
+            PersistentDescriptorSet::new(layout, [write_buffer, write_sampler]).unwrap()
+        }
+    };
+
     trace!(target: "render_frame", "begin_render_pass");
     builder
         .begin_render_pass(
@@ -472,6 +610,16 @@ fn render_frame(
         .bind_vertex_buffers(0, lines_vert_buf.clone())
         .draw(lines_vert_buf.len().try_into().unwrap(), 1, 0, 0)
         .unwrap()
+        .bind_pipeline_graphics(pipelines.blit_pipeline.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            pipelines.blit_pipeline.layout().clone(),
+            0,
+            descriptor_set_blits,
+        )
+        .bind_vertex_buffers(0, blits_vert_buf.clone())
+        .draw(blits_vert_buf.len().try_into().unwrap(), 1, 0, 0)
+        .unwrap()
         .end_render_pass()
         .unwrap();
 
@@ -481,6 +629,7 @@ fn render_frame(
     trace!(target: "render_frame", "scheduling command buffer");
     let result = previous_frame_end
         .join(acquire_future)
+        .join(image_future)
         .then_execute(queue.clone(), command_buffer)
         .expect("then_execute failed")
         .then_swapchain_present(queue.clone(), swapchain.clone(), image_index)
@@ -572,12 +721,60 @@ void main() {
     }
 }
 
+mod blit {
+    pub mod vs {
+        vulkano_shaders::shader! {
+            ty: "vertex",
+            src: "
+#version 450
+
+layout(binding = 0) uniform BlitUniform {
+    mat4 proj;
+} ubo;
+
+layout(location = 0) in uvec2 position;
+layout(location = 1) in vec2 texture_coord;
+layout(location = 0) out vec2 out_texture_coord;
+
+void main() {
+    gl_Position = ubo.proj * vec4(position.x, position.y, 0.0, 1.0);
+    out_texture_coord = texture_coord;
+}"
+        }
+    }
+
+    pub mod fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            src: "
+#version 450
+
+layout(location = 0) in vec2 texCoord;
+layout(location = 0) out vec4 f_color;
+layout(set = 0, binding = 1) uniform sampler2D texSampler;
+
+void main() {
+    //f_color = vec4(0.0, 1.0, 0.0, 1.0);
+    f_color = texture(texSampler, texCoord);
+}"
+        }
+    }
+}
+
 #[derive(Default, Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
 }
 
 vulkano::impl_vertex!(Vertex, position);
+
+#[derive(Default, Copy, Clone)]
+struct BlitImageVertex {
+    position: [u32; 2],
+    texture_coord: [f32; 2],
+}
+
+vulkano::impl_vertex!(BlitImageVertex, position, texture_coord);
 
 #[derive(Default, Copy, Clone)]
 struct Line {

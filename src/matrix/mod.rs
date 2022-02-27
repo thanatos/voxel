@@ -1,7 +1,10 @@
 use std::fmt;
 
 pub mod projection;
+mod screen;
 pub mod transformations;
+
+pub use screen::screen_matrix;
 
 /// A 4x4 matrix of single-precision floats.
 // repr(C) because vulkano will transmit it to the GPU via memcpy().
