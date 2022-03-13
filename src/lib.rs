@@ -27,9 +27,10 @@ mod camera;
 mod init;
 mod matrix;
 mod png;
-mod resources;
+pub mod resources;
+pub mod sw_image;
 mod timing;
-mod text_rendering;
+pub mod text_rendering;
 
 use matrix::Matrix;
 
@@ -72,7 +73,7 @@ struct Args {
     use_gpu_with_uuid: Option<uuid::Uuid>,
 }
 
-fn main() {
+pub fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args = Args::from_args();
     info!("voxel started.");
@@ -86,7 +87,7 @@ fn main() {
     ).unwrap();
 
     info!("Loading resources…");
-    let resources = resources::Fonts::init().unwrap();
+    let resources = resources::Fonts::init(false).unwrap();
     info!("Loaded resources.");
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
@@ -516,28 +517,16 @@ fn render_frame(
     .unwrap();
 
     let (image, (image_w, image_h), image_future) = {
-        let t_image = text_rendering::render_text("Hello, world.", &resources.deja_vu).unwrap();
-        let pixels = {
-            let mut pixels = Vec::with_capacity(t_image.pixels().len() * 4);
-            for pixel in t_image.pixels() {
-                pixels.push(0);
-                pixels.push(255);
-                pixels.push(0);
-                pixels.push(*pixel);
-            }
-            pixels
-        };
+        let t_image = text_rendering::render_text("Hello, world.", &resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
             queue.device().clone(),
             BufferUsage::transfer_source(),
             false, // host_cached
-            //pixel_iter,
-            //pixels.iter().copied(),
-            t_image.pixels().iter().map(|p| (0u8, 255u8, 0u8, *p)),
+            t_image.pixels().map(|p| (p.r, p.g, p.b, p.a)),
         )
         .unwrap();
-        let width = u32::try_from(t_image.width()).unwrap();
-        let height = u32::try_from(t_image.height()).unwrap();
+        let width = t_image.width();
+        let height = t_image.height();
         let dimensions = vulkano::image::ImageDimensions::Dim2d {
             width,
             height,

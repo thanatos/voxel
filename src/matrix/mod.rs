@@ -101,9 +101,113 @@ impl fmt::Debug for Matrix {
     }
 }
 
+/// A 3D vertex.
+// repr(C) because vulkano will transmit it to the GPU via memcpy().
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct Vertex3d {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl Vertex3d {
+    pub fn new(x: f32, y: f32, z: f32) -> Vertex3d {
+        Vertex3d { x, y, z }
+    }
+}
+
+impl PartialEq for Vertex3d {
+    fn eq(&self, other: &Vertex3d) -> bool {
+        self.x == other.x && self.y == other.y && self.x == other.z
+    }
+}
+
+impl Eq for Vertex3d {}
+
+impl std::ops::Mul<Vertex3d> for Matrix {
+    type Output = Vertex3d;
+
+    fn mul(self, rhs: Vertex3d) -> Vertex3d {
+        let x = self.data[0][0] * rhs.x
+            + self.data[1][0] * rhs.y
+            + self.data[2][0] * rhs.z
+            + self.data[3][0];
+        let y = self.data[0][1] * rhs.x
+            + self.data[1][1] * rhs.y
+            + self.data[2][1] * rhs.z
+            + self.data[3][1];
+        let z = self.data[0][2] * rhs.x
+            + self.data[1][2] * rhs.y
+            + self.data[2][2] * rhs.z
+            + self.data[3][2];
+        Vertex3d { x, y, z }
+    }
+}
+
+/// A 4D vertex.
+// repr(C) because vulkano will transmit it to the GPU via memcpy().
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct Vertex4d {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+
+impl Vertex4d {
+    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Vertex4d {
+        Vertex4d { x, y, z, w }
+    }
+}
+
+impl PartialEq for Vertex4d {
+    fn eq(&self, other: &Vertex4d) -> bool {
+        self.x == other.x && self.y == other.y && self.x == other.z && self.w == other.w
+    }
+}
+
+impl Eq for Vertex4d {}
+
+impl std::ops::Mul<Vertex4d> for Matrix {
+    type Output = Vertex4d;
+
+    fn mul(self, rhs: Vertex4d) -> Vertex4d {
+        let x = self.data[0][0] * rhs.x
+            + self.data[1][0] * rhs.y
+            + self.data[2][0] * rhs.z
+            + self.data[3][0] * rhs.w;
+        let y = self.data[0][1] * rhs.x
+            + self.data[1][1] * rhs.y
+            + self.data[2][1] * rhs.z
+            + self.data[3][1] * rhs.w;
+        let z = self.data[0][2] * rhs.x
+            + self.data[1][2] * rhs.y
+            + self.data[2][2] * rhs.z
+            + self.data[3][2] * rhs.w;
+        let w = self.data[0][3] * rhs.x
+            + self.data[1][3] * rhs.y
+            + self.data[2][3] * rhs.z
+            + self.data[3][3] * rhs.w;
+        Vertex4d { x, y, z, w }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Matrix;
+
+    #[test]
+    fn test_matrix_debug() {
+        let a = Matrix::from([
+            [1., 2., 3., 4.],
+            [0., 1., 0., 5.],
+            [0., 0., 1., 6.],
+            [0., 0., 0., 7.],
+        ]);
+        println!("{:#?}", a);
+    }
 
     #[test]
     fn test_matrix_mul() {

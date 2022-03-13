@@ -26,7 +26,7 @@ impl Drop for FtLibrary {
 
 pub struct FtFace {
     library: Arc<FtLibrary>,
-    buffer: Option<Box<[u8]>>,
+    _buffer: Option<Box<[u8]>>,
     face: freetype::freetype::FT_Face,
 }
 
@@ -55,7 +55,7 @@ impl FtFace {
         FtError::from_ft(error)?;
         Ok(FtFace {
             library,
-            buffer: Some(buffer),
+            _buffer: Some(buffer),
             face,
         })
     }
@@ -66,6 +66,13 @@ impl FtFace {
 
     pub(super) fn as_raw(&self) -> freetype::freetype::FT_Face {
         self.face
+    }
+}
+
+impl Drop for FtFace {
+    fn drop(&mut self) {
+        let result = FtError::from_ft(unsafe { freetype::freetype::FT_Done_Face(self.face) });
+        result.unwrap();
     }
 }
 
