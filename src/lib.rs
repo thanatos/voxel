@@ -87,7 +87,7 @@ pub fn main() {
     ).unwrap();
 
     info!("Loading resources…");
-    let resources = resources::Fonts::init(false).unwrap();
+    let mut resources = resources::Fonts::init(false).unwrap();
     info!("Loaded resources.");
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
@@ -216,7 +216,7 @@ pub fn main() {
                 rotation.rotation_horz,
                 rotation.rotation_vert,
             ),
-            &resources,
+            &mut resources,
         );
         match output {
             RendererOutput::Rendering(future) => {
@@ -379,7 +379,7 @@ fn render_frame(
     blit_uniform_buffer_pool: &CpuBufferPool<BlitUniform>,
     t: f32,
     view: Matrix,
-    resources: &resources::Fonts,
+    resources: &mut resources::Fonts,
 ) -> RendererOutput {
     trace!(target: "render_frame", "Building framebuffers");
     let framebuffers = swapchain_images
@@ -517,7 +517,7 @@ fn render_frame(
     .unwrap();
 
     let (image, (image_w, image_h), image_future) = {
-        let t_image = text_rendering::render_text("Hello, world.", &resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}).unwrap();
+        let t_image = text_rendering::render_text("Hello, world.", &mut resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}, &resources.deja_vu_cache).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
             queue.device().clone(),
             BufferUsage::transfer_source(),

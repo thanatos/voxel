@@ -5,40 +5,44 @@ use std::convert::TryFrom;
 use ::freetype::freetype as ft_lib;
 use ft_lib::FT_F26Dot6;
 
-use super::freetype;
+use super::{freetype, GlyphMeasures};
 
 pub struct GlyphCache {
+    pub(super) for_height: FT_F26Dot6,
     cache: HashMap<std::os::raw::c_uint, CachedGlyph>,
 }
 
-pub struct CachedGlyph {
+pub(super) struct CachedGlyph {
     capture: CapturedSpans,
+    measures: Option<GlyphMeasures>,
 }
 
 impl CachedGlyph {
-    pub fn spans(&self) -> impl Iterator<Item = (std::os::raw::c_int, ft_lib::FT_Span)> + '_ {
+    pub(super) fn spans(
+        &self,
+    ) -> impl Iterator<Item = (std::os::raw::c_int, ft_lib::FT_Span)> + '_ {
         self.capture.spans()
+    }
+
+    pub(super) fn measures(&self) -> Option<&GlyphMeasures> {
+        self.measures.as_ref()
     }
 }
 
-struct CachedSpan {
-    x: std::os::raw::c_short,
-    len: std::os::raw::c_ushort,
-}
-
-struct CachedRow {
-    y: std::os::raw::c_int,
-    spans_start_at: usize,
-    spans_count: usize,
-}
-
 impl GlyphCache {
-    pub fn new(face: &freetype::FtFace, height: FT_F26Dot6) -> Result<GlyphCache, CacheError> {
+    pub fn empty(for_height: FT_F26Dot6) -> GlyphCache {
+        GlyphCache {
+            for_height,
+            cache: HashMap::new(),
+        }
+    }
+
+    pub fn new(face: &mut freetype::FtFace, height: FT_F26Dot6) -> Result<GlyphCache, CacheError> {
         let mut cache = HashMap::new();
 
-        let raw_face = face.as_raw();
+        let raw_face = face.as_mut_raw();
 
-        let err = unsafe { ft_lib::FT_Set_Char_Size(raw_face, 0, 14 << 6, 0, 0) };
+        let err = unsafe { ft_lib::FT_Set_Char_Size(raw_face, 0, height, 0, 0) };
 
         let err = unsafe {
             ft_lib::FT_Select_Charmap(raw_face, ft_lib::FT_Encoding_::FT_ENCODING_UNICODE)
@@ -85,17 +89,20 @@ impl GlyphCache {
                 },
             };
             {
-                let ft_library = face.library().as_raw();
+                let mut ft_library_lock = face.library().lock().unwrap();
+                let ft_library = ft_library_lock.as_mut_raw();
                 let err = unsafe { ft_lib::FT_Outline_Render(ft_library, outline, &mut params) };
                 freetype::FtError::from_ft(err).map_err(|err| CacheError::RenderGlyph(ch, err))?;
             }
-            let mut captured_spans = captured_spans.finish();
+            let (captured_spans, measures) = captured_spans.finish();
+            let mut captured_spans = captured_spans;
             captured_spans.rows.shrink_to_fit();
             captured_spans.spans.shrink_to_fit();
             println!("CapturedSpans for {}: {:?}", ch, captured_spans);
             println!("CapturedSpans for {}: {:?}", ch, captured_spans.size());
             let cached_glyph = CachedGlyph {
                 capture: captured_spans,
+                measures,
             };
             cache.insert(ch_as_glyph, cached_glyph);
         }
@@ -104,10 +111,13 @@ impl GlyphCache {
         total_size += cache.capacity() * std::mem::size_of::<(char, CachedGlyph)>();
         log::debug!("Cached {} font glyphs, {}B.", cache.len(), total_size);
 
-        Ok(GlyphCache { cache })
+        Ok(GlyphCache {
+            for_height: height,
+            cache,
+        })
     }
 
-    pub fn get_glyph(&self, glyph: std::os::raw::c_uint) -> Option<&CachedGlyph> {
+    pub(super) fn get_glyph(&self, glyph: std::os::raw::c_uint) -> Option<&CachedGlyph> {
         self.cache.get(&glyph)
     }
 }
@@ -158,20 +168,14 @@ impl CapturedSpansSpanIter<'_> {
                 Some((y, idx)) => {
                     assert!(*idx == 0);
                     match rows_iter.next() {
-                        Some((ny, nidx)) => {
-                            CapturedSpansSpanIterState::NotLastRow {
-                                y: *y,
-                                next_row: *ny,
-                                next_row_idx: *nidx,
-                            }
-                        }
-                        None => {
-                            CapturedSpansSpanIterState::LastRow {
-                                y: *y,
-                            }
-                        }
+                        Some((ny, nidx)) => CapturedSpansSpanIterState::NotLastRow {
+                            y: *y,
+                            next_row: *ny,
+                            next_row_idx: *nidx,
+                        },
+                        None => CapturedSpansSpanIterState::LastRow { y: *y },
                     }
-                },
+                }
                 None => CapturedSpansSpanIterState::Complete,
             }
         };
@@ -188,38 +192,36 @@ impl Iterator for CapturedSpansSpanIter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.state {
-            CapturedSpansSpanIterState::NotLastRow { y, next_row, next_row_idx } => {
-                match self.span_iter.next() {
-                    Some((idx, s)) if idx == next_row_idx => {
-                        match self.rows_iter.next() {
-                            Some((ny, nidx)) => {
-                                self.state = CapturedSpansSpanIterState::NotLastRow {
-                                    y: next_row,
-                                    next_row: *ny,
-                                    next_row_idx: *nidx,
-                                };
-                            }
-                            None => {
-                                self.state = CapturedSpansSpanIterState::LastRow {
-                                    y: next_row,
-                                };
-                            }
+            CapturedSpansSpanIterState::NotLastRow {
+                y,
+                next_row,
+                next_row_idx,
+            } => match self.span_iter.next() {
+                Some((idx, s)) if idx == next_row_idx => {
+                    match self.rows_iter.next() {
+                        Some((ny, nidx)) => {
+                            self.state = CapturedSpansSpanIterState::NotLastRow {
+                                y: next_row,
+                                next_row: *ny,
+                                next_row_idx: *nidx,
+                            };
                         }
-                        Some((y, *s))
+                        None => {
+                            self.state = CapturedSpansSpanIterState::LastRow { y: next_row };
+                        }
                     }
-                    Some((_, s)) => Some((y, *s)),
-                    None => panic!("exhausted span iter before row iter?"),
+                    Some((y, *s))
                 }
-            }
-            CapturedSpansSpanIterState::LastRow { y } => {
-                match self.span_iter.next() {
-                    Some((_, s)) => Some((y, *s)),
-                    None => {
-                        self.state = CapturedSpansSpanIterState::Complete;
-                        None
-                    }
+                Some((_, s)) => Some((y, *s)),
+                None => panic!("exhausted span iter before row iter?"),
+            },
+            CapturedSpansSpanIterState::LastRow { y } => match self.span_iter.next() {
+                Some((_, s)) => Some((y, *s)),
+                None => {
+                    self.state = CapturedSpansSpanIterState::Complete;
+                    None
                 }
-            }
+            },
             CapturedSpansSpanIterState::Complete => None,
         }
     }
@@ -228,6 +230,7 @@ impl Iterator for CapturedSpansSpanIter<'_> {
 #[derive(Debug)]
 struct CapturedSpansResult {
     capture: CapturedSpans,
+    measures: super::GlyphMeasuresBuilder,
     panic: Option<Box<dyn Any + Send + 'static>>,
 }
 
@@ -238,15 +241,16 @@ impl CapturedSpansResult {
                 rows: Vec::new(),
                 spans: Vec::new(),
             },
+            measures: super::GlyphMeasuresBuilder::new(),
             panic: None,
         }
     }
 
-    fn finish(self) -> CapturedSpans {
+    fn finish(self) -> (CapturedSpans, Option<GlyphMeasures>) {
         if let Some(p) = self.panic {
             std::panic::resume_unwind(p);
         }
-        self.capture
+        (self.capture, self.measures.finish())
     }
 }
 
@@ -261,18 +265,24 @@ extern "C" fn capture_spans(
         let counts: *mut CapturedSpansResult = std::mem::transmute(user);
         &mut *counts
     };
-    let spans = unsafe {
-        let count = match usize::try_from(count) {
-            Ok(v) => v,
-            Err(err) => {
-                panic!("FreeType passed us a `count` of spans that was not convertable to a usize.")
-            }
-        };
-        let slice = std::ptr::slice_from_raw_parts(spans, count);
-        &*slice
-    };
     let mut inner_captured_spans = std::panic::AssertUnwindSafe(&mut captured_spans.capture);
+    let mut inner_glyph_measures = std::panic::AssertUnwindSafe(&mut captured_spans.measures);
     let result = std::panic::catch_unwind(move || {
+        inner_glyph_measures.measure_y(y);
+        let spans = unsafe {
+            let count = match usize::try_from(count) {
+                Ok(v) => v,
+                Err(_) => {
+                    panic!("FreeType passed us a `count` of spans that was not convertable to a usize.")
+                }
+            };
+            let slice = std::ptr::slice_from_raw_parts(spans, count);
+            &*slice
+        };
+
+        for span in spans {
+            inner_glyph_measures.measure_span(*span);
+        }
         let last_index = inner_captured_spans.spans.len();
         inner_captured_spans.rows.push((y, last_index));
         inner_captured_spans.spans.extend_from_slice(spans);

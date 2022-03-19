@@ -1,5 +1,5 @@
 use std::convert::TryFrom;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct FtLibrary {
     inner: freetype::freetype::FT_Library,
@@ -12,7 +12,7 @@ impl FtLibrary {
         Ok(FtLibrary { inner: ft })
     }
 
-    pub(super) fn as_raw(&self) -> freetype::freetype::FT_Library {
+    pub(super) fn as_mut_raw(&mut self) -> freetype::freetype::FT_Library {
         self.inner
     }
 }
@@ -25,13 +25,13 @@ impl Drop for FtLibrary {
 }
 
 pub struct FtFace {
-    library: Arc<FtLibrary>,
+    library: Arc<Mutex<FtLibrary>>,
     _buffer: Option<Box<[u8]>>,
     face: freetype::freetype::FT_Face,
 }
 
 impl FtFace {
-    pub fn new_from_buffer(library: Arc<FtLibrary>, buffer: Box<[u8]>) -> Result<FtFace, FtError> {
+    pub fn new_from_buffer(library: Arc<Mutex<FtLibrary>>, buffer: Box<[u8]>) -> Result<FtFace, FtError> {
         let mut face: freetype::freetype::FT_Face = std::ptr::null_mut();
         let open_args = freetype::freetype::FT_Open_Args {
             flags: freetype::freetype::FT_OPEN_MEMORY,
@@ -43,16 +43,19 @@ impl FtFace {
             num_params: 0,
             params: std::ptr::null_mut(),
         };
-        let raw_lib = library.as_raw();
-        let error = unsafe {
-            freetype::freetype::FT_Open_Face(
-                raw_lib,
-                &open_args,
-                0,
-                &mut face,
-            )
-        };
-        FtError::from_ft(error)?;
+        {
+            let mut library_lock = library.lock().unwrap();
+            let raw_lib = library_lock.as_mut_raw();
+            let error = unsafe {
+                freetype::freetype::FT_Open_Face(
+                    raw_lib,
+                    &open_args,
+                    0,
+                    &mut face,
+                )
+            };
+            FtError::from_ft(error)?;
+        }
         Ok(FtFace {
             library,
             _buffer: Some(buffer),
@@ -60,11 +63,11 @@ impl FtFace {
         })
     }
 
-    pub fn library(&self) -> &Arc<FtLibrary> {
+    pub fn library(&self) -> &Arc<Mutex<FtLibrary>> {
         &self.library
     }
 
-    pub(super) fn as_raw(&self) -> freetype::freetype::FT_Face {
+    pub(super) fn as_mut_raw(&mut self) -> freetype::freetype::FT_Face {
         self.face
     }
 }
