@@ -21,9 +21,7 @@ impl HarfbuzzFont {
         // XXX: This call can fail, but it doesn't report that to us!
         unsafe { hb_ft_font_set_funcs(font) };
 
-        HarfbuzzFont {
-            inner: font,
-        }
+        HarfbuzzFont { inner: font }
     }
 }
 
@@ -45,9 +43,7 @@ impl HarfbuzzBuffer {
         let buffer = unsafe { hb_buffer_create() };
         let success = unsafe { hb_buffer_allocation_successful(buffer) };
         if success.as_bool() {
-            Some(HarfbuzzBuffer {
-                inner: buffer,
-            })
+            Some(HarfbuzzBuffer { inner: buffer })
         } else {
             None
         }
@@ -72,7 +68,10 @@ impl HarfbuzzBuffer {
         let current_len = {
             let len = unsafe { hb_buffer_get_length(self.inner) };
             // XXX: Wrong type from Harfbuzz; it returns an `unsigned int` :(
-            usize::try_from(len).unwrap()
+            usize::try_from(len).expect(
+                "assertion failed: failed to convert the length from Harfbuzz to a usize; we \
+                 expect that all lengths from Harfbuzz fit in a usize",
+            )
         };
 
         // hb_buffer_add doesn't touch the buffer content type, so we need to handle that
@@ -83,14 +82,24 @@ impl HarfbuzzBuffer {
             (hb_buffer_content_type_t::HB_BUFFER_CONTENT_TYPE_INVALID, 0) => (),
             (hb_buffer_content_type_t::HB_BUFFER_CONTENT_TYPE_UNICODE, _) => (),
             _ => {
-                panic!("Harfbuzz buffer was not a Unicode buffer in add_str() call");
+                panic!(
+                    "assertion failed: Harfbuzz buffer was not a Unicode buffer in add_str() call"
+                );
             }
         }
 
         let code_points = s.chars().count();
-        let new_len = code_points.checked_add(current_len).unwrap();
+        let new_len = code_points.checked_add(current_len).expect(
+            "assertion failed: combined size of current buffer and new text is too long in \
+             add_str",
+        );
         // XXX Again, Harfbuzz uses the wrong type.
-        let new_len = std::os::raw::c_uint::try_from(new_len).unwrap();
+        let new_len = std::os::raw::c_uint::try_from(new_len).expect(
+            "assertion failed: we need to pass a buffer length to Harfbuzz, but Harfbuzz requires \
+             it to be a c_uint; we weren't able to fit our buffer length into that type (though \
+             this probably indicates a bug elsewhere, as it would require the buffer to be \
+             incredibly huge)",
+        );
         let success = unsafe { hb_buffer_pre_allocate(self.inner, new_len) };
         if !success.as_bool() {
             panic!("Harfbuzz buffer failed to pre-allocate {} bytes", new_len);
@@ -98,7 +107,10 @@ impl HarfbuzzBuffer {
         for (idx, ch) in s.char_indices() {
             let ch = ch.into();
             // XXX: And once more, wrong type.
-            let idx = std::os::raw::c_uint::try_from(idx).unwrap();
+            let idx = std::os::raw::c_uint::try_from(idx).expect(
+                "assertion failed: unable to convert char index into c_uint for Harfbuzz; value \
+                 did not fit in c_uint",
+            );
             unsafe { hb_buffer_add(self.inner, ch, idx) };
         }
 
@@ -122,7 +134,8 @@ impl HarfbuzzBuffer {
             let mut len = 0;
             let glyphs = unsafe { hb_buffer_get_glyph_positions(self.inner, &mut len) };
             // XXX: Wrong type from Harfbuzz
-            let len = usize::try_from(len).unwrap();
+            let len = usize::try_from(len)
+                .expect("assertion failed: unable to convert length from Harfbuzz into a usize");
             unsafe { std::slice::from_raw_parts(glyphs, len) }
         };
 
@@ -130,7 +143,8 @@ impl HarfbuzzBuffer {
             let mut len = 0;
             let glyphs = unsafe { hb_buffer_get_glyph_infos(self.inner, &mut len) };
             // XXX: Wrong type from Harfbuzz
-            let len = usize::try_from(len).unwrap();
+            let len = usize::try_from(len)
+                .expect("assertion failed: unable to convert length from Harfbuzz into a usize");
             unsafe { std::slice::from_raw_parts(glyphs, len) }
         };
 
@@ -155,7 +169,7 @@ pub fn shape(font: &mut HarfbuzzFont, buffer: &mut HarfbuzzBuffer) {
 }
 
 #[link(name = "harfbuzz")]
-extern {
+extern "C" {
     fn hb_font_get_empty() -> *mut hb_font_t;
     fn hb_font_destroy(font: *mut hb_font_t);
     fn hb_ft_font_create_referenced(face: freetype::freetype::FT_Face) -> *mut hb_font_t;
@@ -165,15 +179,30 @@ extern {
     fn hb_buffer_destroy(buffer: *mut hb_buffer_t);
     fn hb_buffer_allocation_successful(buffer: *mut hb_buffer_t) -> hb_bool_t;
     fn hb_buffer_pre_allocate(buffer: *mut hb_buffer_t, size: std::os::raw::c_uint) -> hb_bool_t;
-    fn hb_buffer_add(buffer: *mut hb_buffer_t, codepoint: hb_codepoint_t, cluster: std::os::raw::c_uint);
+    fn hb_buffer_add(
+        buffer: *mut hb_buffer_t,
+        codepoint: hb_codepoint_t,
+        cluster: std::os::raw::c_uint,
+    );
     fn hb_buffer_get_length(buffer: *mut hb_buffer_t) -> std::os::raw::c_uint;
     fn hb_buffer_get_content_type(buffer: *mut hb_buffer_t) -> hb_buffer_content_type_t;
     fn hb_buffer_set_content_type(buffer: *mut hb_buffer_t, content_type: hb_buffer_content_type_t);
     fn hb_buffer_set_direction(buffer: *mut hb_buffer_t, direction: hb_direction_t);
-    fn hb_buffer_get_glyph_positions(buffer: *mut hb_buffer_t, length: *mut std::os::raw::c_uint) -> *mut hb_glyph_position_t;
-    fn hb_buffer_get_glyph_infos(buffer: *mut hb_buffer_t, length: *mut std::os::raw::c_uint) -> *mut hb_glyph_info_t;
+    fn hb_buffer_get_glyph_positions(
+        buffer: *mut hb_buffer_t,
+        length: *mut std::os::raw::c_uint,
+    ) -> *mut hb_glyph_position_t;
+    fn hb_buffer_get_glyph_infos(
+        buffer: *mut hb_buffer_t,
+        length: *mut std::os::raw::c_uint,
+    ) -> *mut hb_glyph_info_t;
 
-    fn hb_shape(font: *mut hb_font_t, buffer: *mut hb_buffer_t, features: *const hb_feature_t, num_features: std::os::raw::c_uint);
+    fn hb_shape(
+        font: *mut hb_font_t,
+        buffer: *mut hb_buffer_t,
+        features: *const hb_feature_t,
+        num_features: std::os::raw::c_uint,
+    );
 }
 
 #[repr(C)]
@@ -209,7 +238,6 @@ pub struct hb_feature_t {
     pub value: u32,
     pub start: std::os::raw::c_uint,
     pub end: std::os::raw::c_uint,
-
 }
 
 #[repr(C)]
