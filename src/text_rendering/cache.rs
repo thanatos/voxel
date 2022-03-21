@@ -108,7 +108,7 @@ impl GlyphCache {
         }
 
         let mut total_size: usize = cache.values().map(|v| v.capture.size()).sum();
-        total_size += cache.capacity() * std::mem::size_of::<(char, CachedGlyph)>();
+        total_size += cache.capacity() * std::mem::size_of::<(std::os::raw::c_uint, CachedGlyph)>();
         log::debug!("Cached {} font glyphs, {}B.", cache.len(), total_size);
 
         Ok(GlyphCache {
@@ -210,7 +210,7 @@ impl Iterator for CapturedSpansSpanIter<'_> {
                             self.state = CapturedSpansSpanIterState::LastRow { y: next_row };
                         }
                     }
-                    Some((y, *s))
+                    Some((next_row, *s))
                 }
                 Some((_, s)) => Some((y, *s)),
                 None => panic!("exhausted span iter before row iter?"),
