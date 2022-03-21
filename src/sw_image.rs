@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Pixel {
     pub r: u8,
     pub g: u8,

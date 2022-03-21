@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::convert::TryFrom;
 
 use ::freetype::freetype as ft_lib;
@@ -24,10 +25,47 @@ impl MaybeCachedGlyphMeasures<'_> {
     }
 }
 
+pub struct FormattedText {
+    text: String,
+    // Maps starting index → color
+    // The vector is always sorted by .0, as we always append successively higher indexes.
+    // TODO: SmallVec?
+    color_spans: Vec<(usize, Pixel)>,
+}
+
+impl FormattedText {
+    pub fn new() -> FormattedText {
+        FormattedText {
+            text: String::new(),
+            color_spans: Vec::new(),
+        }
+    }
+
+    pub fn add_str(&mut self, s: &str, color: Pixel) {
+        if self.color_spans.last().map(|(_, c)| *c) != Some(color) {
+            self.color_spans.push((self.text.len(), color));
+        }
+        self.text.push_str(s);
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    // TODO: this is going to be O(n * log(n)) as we iterate through the glyphs in the string.
+    // The glyphs should be mostly in order; a smarter lookup that remembers the last color span
+    // could probably get O(n) in most cases.
+    pub fn color_for_index(&self, index: usize) -> Pixel {
+        match self.color_spans.binary_search_by_key(&index, |(i, _)| *i) {
+            Ok(idx) => self.color_spans[idx].1,
+            Err(idx) => self.color_spans[idx - 1].1,
+        }
+    }
+}
+
 pub fn render_text(
-    s: &str,
+    text: &FormattedText,
     face: &mut freetype::FtFace,
-    color: Pixel,
     cache: &GlyphCache,
 ) -> Result<SwImage, RenderError> {
     // TODO: allow specifying the height
@@ -39,7 +77,7 @@ pub fn render_text(
     let mut buffer =
         harfbuzz::HarfbuzzBuffer::new().ok_or_else(|| RenderError::HarfbuzzBufferAllocFailed)?;
     buffer.set_direction(harfbuzz::hb_direction_t::HB_DIRECTION_LTR);
-    buffer.add_str(s);
+    buffer.add_str(text.as_str());
     harfbuzz::shape(&mut hb_font, &mut buffer);
     let (glyphs, glyph_infos) = buffer.glyph_positions_and_infos();
     assert!(glyphs.len() == glyph_infos.len());
@@ -123,10 +161,14 @@ pub fn render_text(
         x: 0,
         image: SwImage::new(width, height),
         error: None,
-        color,
+        panic: None,
+        color: Pixel { r: 0, g: 0, b: 0, a: 0 },
     };
     // Render:
     for (glyph, glyph_info) in glyphs.iter().zip(glyph_infos.iter()) {
+        let glyph_index_in_str = usize::try_from(glyph_info.cluster).unwrap();
+        let color = text.color_for_index(glyph_index_in_str);
+        render_info.color = color;
         match cache.get_glyph(glyph_info.codepoint) {
             Some(cached_glyph) => {
                 render_cached_glyph(&mut render_info, cached_glyph)?;
@@ -163,6 +205,9 @@ pub fn render_text(
                     let err =
                         unsafe { ft_lib::FT_Outline_Render(ft_library, outline, &mut params) };
                     freetype::FtError::from_ft(err)?;
+                }
+                if let Some(p) = render_info.panic {
+                    std::panic::resume_unwind(p);
                 }
             }
         }
@@ -323,6 +368,7 @@ struct RenderInfo {
     x: u32,
     image: SwImage,
     error: Option<RenderError>,
+    panic: Option<Box<dyn Any + Send + 'static>>,
     color: Pixel,
 }
 
@@ -353,7 +399,6 @@ fn render_cached_glyph(
                 return Err(RenderError::SpanYComputeFailed(render_info.base_y, y));
             }
         };
-        let x = render_info.x + u32::try_from(span.x).unwrap();
         let y = u32::try_from(real_y).unwrap();
         let color = {
             let mut color = render_info.color;
@@ -361,7 +406,10 @@ fn render_cached_glyph(
             color.a = span.coverage;
             color
         };
-        render_info.image.blend_pixel(x, y, color);
+        for x in i32::from(span.x)..i32::from(span.x).checked_add(i32::from(span.len)).unwrap() {
+            let x = render_info.x + u32::try_from(x).unwrap();
+            render_info.image.blend_pixel(x, y, color);
+        }
     }
     Ok(())
 }
@@ -395,17 +443,27 @@ extern "C" fn render_span(
             return;
         }
     };
-    for span in spans {
-        for x in i32::from(span.x)..i32::from(span.x) + i32::from(span.len) {
-            let x = render_info.x + u32::try_from(x).unwrap();
-            let y = u32::try_from(real_y).unwrap();
-            let color = {
-                let mut color = render_info.color;
-                // FIXME: we ignore the specified alpha
-                color.a = span.coverage;
-                color
-            };
-            render_info.image.blend_pixel(x, y, color);
+    let inner = (&mut render_info.image, render_info.color, render_info.x);
+    let mut inner_render_info = std::panic::AssertUnwindSafe(inner);
+    let result = std::panic::catch_unwind(move || {
+        let (image, color, render_x) = inner_render_info.0;
+        for span in spans {
+            for x in i32::from(span.x)..i32::from(span.x) + i32::from(span.len) {
+                let x = render_x + u32::try_from(x).unwrap();
+                let y = u32::try_from(real_y).unwrap();
+                let color = {
+                    let mut color = color;
+                    // FIXME: we ignore the specified alpha
+                    color.a = span.coverage;
+                    color
+                };
+                image.blend_pixel(x, y, color);
+            }
         }
+    });
+
+    match result {
+        Ok(()) => (),
+        Err(err) => render_info.panic = Some(err),
     }
 }
