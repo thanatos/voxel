@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::fmt;
 
-/// Indicates a particular corner in an octree subdivision.
+/// Indicates a particular corner when dividing a cube into 8 smaller cudes.
 #[derive(Clone, Copy, Debug)]
 pub enum SubCube {
     LowerSw,
@@ -108,18 +108,26 @@ impl Iterator for AllSubCubes {
 impl std::iter::FusedIterator for AllSubCubes {}
 impl std::iter::ExactSizeIterator for AllSubCubes {}
 
-/// A cube within an octree.
+/// A cube-shaped volume somewhere within an octree.
+///
+/// A `LocationCode` descripts a sub-volume of an octree. It is a `u32`, whose bits denote the
+/// "direction" to take at each split at each level of the octree.
+///
+/// Two bits are unused. The 30 used bits allow for 10 subdivisions of the octree, or a total
+/// volume that is 1024³, or 1,073,741,824 cubes, if all levels are used. (Not all levels are used
+/// in Voxel, and attempting to would likely exceed RAM.)
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct LocationCode(u32);
 
 impl LocationCode {
+    /// The "root" of the octree, this represents the entire volume contained in the octree.
     pub const ROOT: LocationCode = LocationCode(1);
 
-    pub fn push_sub_cube(self, sub_cube_code: SubCube) -> LocationCode {
+    pub fn push_sub_cube(self, sub_cube: SubCube) -> LocationCode {
         if self.0 & 0b11100000_00000000_00000000_00000000 != 0 {
             panic!("Location code too small; cannot subdivide further.");
         }
-        LocationCode((self.0 << 3) | u32::from(sub_cube_code.to_bits()))
+        LocationCode((self.0 << 3) | u32::from(sub_cube.to_bits()))
     }
 
     pub fn sub_cube(self) -> Option<(LocationCode, SubCube)> {
