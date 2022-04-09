@@ -25,6 +25,7 @@ use vulkano::sync::{FlushError, GpuFuture};
 
 mod camera;
 mod init;
+pub mod magica;
 mod matrix;
 mod png;
 pub mod resources;
