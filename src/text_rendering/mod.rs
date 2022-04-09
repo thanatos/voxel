@@ -364,7 +364,6 @@ extern "C" fn measure_glyph(
 
 struct RenderInfo {
     base_y: std::os::raw::c_int,
-    //x: usize,
     x: u32,
     image: SwImage,
     error: Option<RenderError>,
