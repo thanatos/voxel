@@ -125,6 +125,13 @@ pub fn main() {
     let blit_fs =
         blit::fs::load(init.vulkan_device.clone()).expect("failed to create shader module");
 
+    let magica_shaders = magica::MagicaShaders::load(init.vulkan_device.clone());
+    let magica_model = {
+        static MODEL: &'static [u8] = include_bytes!("vox/logo.vox");
+        let top_chunk = magica::io::from_reader(std::io::Cursor::new(MODEL)).unwrap();
+        magica::MagicaModel::new(init.vulkan_device.clone(), &top_chunk).unwrap()
+    };
+
     let uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
     let blit_uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
 
@@ -146,6 +153,7 @@ pub fn main() {
         &lines_fs,
         &blit_vs,
         &blit_fs,
+        &magica_shaders,
     );
 
     init.sdl_context.mouse().set_relative_mouse_mode(true);
@@ -225,6 +233,7 @@ pub fn main() {
                         &lines_fs,
                         &blit_vs,
                         &blit_fs,
+                        &magica_shaders,
                     );
                 }
                 // These happen. Examples ignore them. What exactly is going on here?
@@ -257,6 +266,7 @@ pub fn main() {
                 rotation.rotation_vert,
             ),
             &mut resources,
+            &magica_model,
         );
         match output {
             RendererOutput::Rendering(future) => {
@@ -335,6 +345,7 @@ struct Pipelines {
     normal_pipeline: Arc<GraphicsPipeline>,
     lines_pipeline: Arc<GraphicsPipeline>,
     blit_pipeline: Arc<GraphicsPipeline>,
+    magica_pipeline: Arc<GraphicsPipeline>,
 }
 
 impl Pipelines {
@@ -347,6 +358,7 @@ impl Pipelines {
         lines_fs: &ShaderModule,
         blit_vs: &ShaderModule,
         blit_fs: &ShaderModule,
+        magica_shaders: &magica::MagicaShaders,
     ) -> Pipelines {
         let normal_pipeline = GraphicsPipeline::start()
             // Defines what kind of vertex input is expected.
@@ -389,19 +401,22 @@ impl Pipelines {
             // The fragment shader.
             .fragment_shader(blit_fs.entry_point("main").unwrap(), ())
             // This graphics pipeline object concerns the first pass of the render pass.
-            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .color_blend_state(ColorBlendState::default().blend_alpha())
             .input_assembly_state(
                 InputAssemblyState::new().topology(PrimitiveTopology::TriangleStrip),
             )
             // Now that everything is specified, we call `build`.
-            .build(device)
+            .build(device.clone())
             .unwrap();
+
+        let magica_pipeline = magica::build_pipeline(device, render_pass, magica_shaders);
 
         Pipelines {
             normal_pipeline,
             lines_pipeline,
             blit_pipeline,
+            magica_pipeline,
         }
     }
 }
@@ -422,6 +437,7 @@ fn render_frame(
     look: &Look,
     view: Matrix,
     resources: &mut resources::Fonts,
+    magica_model: &magica::MagicaModel,
 ) -> RendererOutput {
     trace!(target: "render_frame", "Building framebuffers");
     let framebuffers = swapchain_images
@@ -612,6 +628,7 @@ fn render_frame(
         }
     };
 
+    use magica::MagicaAutoCmdExt;
     trace!(target: "render_frame", "begin_render_pass");
     builder
         .begin_render_pass(
@@ -641,6 +658,7 @@ fn render_frame(
         .bind_vertex_buffers(0, lines_vert_buf.clone())
         .draw(lines_vert_buf.len().try_into().unwrap(), 1, 0, 0)
         .unwrap()
+        .draw_magica(pipelines.magica_pipeline.clone(), magica_model)
         .bind_pipeline_graphics(pipelines.blit_pipeline.clone())
         .bind_descriptor_sets(
             PipelineBindPoint::Graphics,
