@@ -64,7 +64,7 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
     let video_subsystem = sdl_context.video().unwrap();
     trace!("SDL video subsystem initialized.");
     let window = video_subsystem
-        .window("Voxel", 640, 480)
+        .window("Voxel", 800, 600)
         .vulkan()
         .resizable()
         .build()
