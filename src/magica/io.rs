@@ -331,11 +331,15 @@ fn parse_chunk<R: Read>(
             }
             let mut voxels = Vec::new();
             for voxel_chunk in content[4..].chunks(4) {
-                // These are backwards in the file, in IZYX order:
-                let color_index = voxel_chunk[0];
-                let z = voxel_chunk[1];
-                let y = voxel_chunk[2];
-                let x = voxel_chunk[3];
+                let x = voxel_chunk[0];
+                let y = voxel_chunk[1];
+                let z = voxel_chunk[2];
+                let color_index = voxel_chunk[3];
+                // .vox stores the palette index as (index+1), *bizarrely*.
+                // So, adjust it:
+                let color_index = color_index
+                    .checked_sub(1)
+                    .ok_or_else(|| invalid_data("voxel with color index 0, which is not legal"))?;
                 voxels.push(Voxel {
                     x,
                     y,
@@ -355,12 +359,11 @@ fn parse_chunk<R: Read>(
             }
             let mut palette = Vec::new();
             for rgba_chunk in content.chunks(4) {
-                // These are backwards in the file, in ABGR order:
-                let a = rgba_chunk[0];
-                let b = rgba_chunk[1];
-                let g = rgba_chunk[2];
-                let r = rgba_chunk[3];
-                let color = Color { r, b, g, a };
+                let r = rgba_chunk[0];
+                let g = rgba_chunk[1];
+                let b = rgba_chunk[2];
+                let a = rgba_chunk[3];
+                let color = Color { r, g, b, a };
                 palette.push(color);
             }
             assert!(palette.len() == 256);
@@ -372,19 +375,16 @@ fn parse_chunk<R: Read>(
             let material_id = read_i32(&mut content_ptr)?;
             let mut dict = read_dict(&mut content_ptr)?;
             let material_type = {
-                dict
-                    .remove("_type")
-                    .map(|material_type| {
-                        match material_type.as_str() {
-                            "_diffuse" => Ok(MaterialType::Diffuse),
-                            "_metal" => Ok(MaterialType::Metal),
-                            "_glass" => Ok(MaterialType::Glass),
-                            "_emit" => Ok(MaterialType::Emit),
-                            _ => Err(invalid_data(format!(
-                                "MATL chunk's _type was {}",
-                                material_type
-                            )))
-                        }
+                dict.remove("_type")
+                    .map(|material_type| match material_type.as_str() {
+                        "_diffuse" => Ok(MaterialType::Diffuse),
+                        "_metal" => Ok(MaterialType::Metal),
+                        "_glass" => Ok(MaterialType::Glass),
+                        "_emit" => Ok(MaterialType::Emit),
+                        _ => Err(invalid_data(format!(
+                            "MATL chunk's _type was {}",
+                            material_type
+                        ))),
                     })
                     .transpose()?
             };
@@ -453,13 +453,15 @@ fn read_i32(mut read: impl Read) -> io::Result<i32> {
 
 #[cfg(test)]
 mod tests {
-    static LOGO: &[u8] = include_bytes!("vox/logo.vox");
+    use std::io::Cursor;
 
     use super::from_reader;
 
+    static LOGO: &[u8] = include_bytes!("../vox/logo.vox");
+
     #[test]
     fn test_load_logo() {
-        let logo = from_reader(std::io::Cursor::new(LOGO)).expect("logo.vox should parse");
+        let logo = from_reader(Cursor::new(LOGO)).expect("logo.vox should parse");
         println!("Logo: {:#?}", logo);
     }
 
@@ -470,5 +472,38 @@ mod tests {
             "UnknownChunk: {}B",
             std::mem::size_of::<super::UnknownChunk>()
         );
+    }
+
+    /// Test that `byte_order_test.vox` loads & parses correctly.
+    ///
+    /// This file contains a single blue cube in a specific position. Specifically, the cube is
+    /// placed such that none of it's X, Y, or Z coordinates are the same; additionally, the
+    /// palette index of its color is also different from all three coordinates. This lets us check
+    /// that we're mapping the X,Y,Z,color bytes from the file to their attributes correctly.
+    ///
+    /// The particular shade of blue is also similarly chosen to have unique values for each of R,
+    /// G, B.
+    #[test]
+    fn test_byte_order_file() {
+        static VOX_FILE: &[u8] = include_bytes!("../vox/byte_order_test.vox");
+        let logo = from_reader(Cursor::new(VOX_FILE)).expect("byte_order_test.vox should parse");
+
+        let voxels = super::super::find_xyzi_data(&logo).unwrap();
+        assert!(voxels.len() == 1);
+        let voxel = &voxels[0];
+        println!("voxel: {:?}", voxel);
+        assert!(voxel.x == 0);
+        assert!(voxel.y == 1);
+        assert!(voxel.z == 2);
+        assert!(voxel.color_index == 9);
+
+        let palette = super::super::find_rgba_data(&logo).unwrap();
+        let color = palette[9];
+        for (idx, color) in palette.iter().enumerate() {
+            println!("color[{}]: {:?}", idx, color);
+        }
+        assert!(color.r == 64);
+        assert!(color.g == 128);
+        assert!(color.b == 254);
     }
 }
