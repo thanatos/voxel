@@ -547,22 +547,51 @@ fn render_frame(
         let mut lines = vec![];
         for i in -10i8..=10 {
             lines.push(Line {
-                position: [f32::from(i), -10.0],
+                position: [f32::from(i), 0., -10.0],
                 color: [1., 0., 0.],
             });
             lines.push(Line {
-                position: [f32::from(i), 10.0],
+                position: [f32::from(i), 0., 10.0],
                 color: [1., 0., 0.],
             });
             lines.push(Line {
-                position: [10.0, f32::from(i)],
+                position: [10.0, 0., f32::from(i)],
                 color: [0., 0., 1.],
             });
             lines.push(Line {
-                position: [-10.0, f32::from(i)],
+                position: [-10.0, 0., f32::from(i)],
                 color: [0., 0., 1.],
             });
         }
+        // The Axis indicators:
+        // X
+        lines.push(Line {
+            position: [0., 1., 0.],
+            color: [1., 0., 0.],
+        });
+        lines.push(Line {
+            position: [1., 1., 0.],
+            color: [1., 0., 0.],
+        });
+        // Y
+        lines.push(Line {
+            position: [0., 1., 0.],
+            color: [0., 1., 0.],
+        });
+        lines.push(Line {
+            position: [0., 2., 0.],
+            color: [0., 1., 0.],
+        });
+        // Z
+        lines.push(Line {
+            position: [0., 1., 0.],
+            color: [0., 0., 1.],
+        });
+        lines.push(Line {
+            position: [0., 1., 1.],
+            color: [0., 0., 1.],
+        });
+
         lines
     };
 
@@ -740,13 +769,13 @@ layout(binding = 0) uniform UniformBufferObject {
     float t;
 } ubo;
 
-layout(location = 0) in vec2 position;
+layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 
 layout(location = 0) out vec3 color_out;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * vec4(position.x, 0, position.y, 1.0);
+    gl_Position = ubo.proj * ubo.view * vec4(position, 1.0);
     color_out = color;
 }"
         }
@@ -827,7 +856,7 @@ vulkano::impl_vertex!(BlitImageVertex, position, texture_coord);
 
 #[derive(Default, Copy, Clone)]
 struct Line {
-    position: [f32; 2],
+    position: [f32; 3],
     color: [f32; 3],
 }
 
