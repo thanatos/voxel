@@ -35,6 +35,13 @@ pub mod text_rendering;
 
 use matrix::Matrix;
 
+#[derive(Clone, Default)]
+struct Position {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
 struct Look {
     rotation_horz: f32,
     rotation_vert: f32,
@@ -51,6 +58,13 @@ impl Look {
             self.rotation_vert = -NINETY_DEG;
         } else if NINETY_DEG < self.rotation_vert {
             self.rotation_vert = NINETY_DEG;
+        }
+
+        if self.rotation_horz < -std::f32::consts::PI * 2. {
+            self.rotation_horz += std::f32::consts::PI * 2.;
+        }
+        if std::f32::consts::PI * 2. < self.rotation_horz {
+            self.rotation_horz -= std::f32::consts::PI * 2.;
         }
     }
 }
@@ -121,7 +135,8 @@ pub fn main() {
     let mut frames = 0;
     let start = std::time::Instant::now();
     let mut rotation: Look = Default::default();
-    let mut position = (5f32, 5f32);
+    let mut position: Position = Default::default();
+    position.y = 1.5;
     let mut pipelines = Pipelines::new(
         init.vulkan_device.clone(),
         render_details.render_pass.clone(),
@@ -146,16 +161,38 @@ pub fn main() {
                     }
                 }
                 Event::KeyDown {
+                    keycode: Some(Keycode::W),
+                    ..
+                } => {
+                    let bearing = rotation.rotation_horz;
+                    let y_change = bearing.sin();
+                    let x_change = bearing.cos();
+                    position.x += x_change;
+                    position.z += y_change;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Q),
+                    ..
+                } => {
+                    position.y += 0.5;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Z),
+                    ..
+                } => {
+                    position.y -= 0.5;
+                }
+                Event::KeyDown {
                     keycode: Some(Keycode::Left),
                     ..
                 } => {
-                    position.0 -= 0.5;
+                    position.x -= 0.5;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Right),
                     ..
                 } => {
-                    position.0 += 0.5;
+                    position.x += 0.5;
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::M),
@@ -210,10 +247,12 @@ pub fn main() {
             &uniform_buffer_pool,
             &blit_uniform_buffer_pool,
             (std::time::Instant::now() - start).as_secs_f32(),
+            &position,
+            &rotation,
             camera::camera(
-                position.0,
-                1.5,
-                position.1,
+                position.x,
+                position.y,
+                position.z,
                 rotation.rotation_horz,
                 rotation.rotation_vert,
             ),
@@ -379,6 +418,8 @@ fn render_frame(
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     blit_uniform_buffer_pool: &CpuBufferPool<BlitUniform>,
     t: f32,
+    position: &Position,
+    look: &Look,
     view: Matrix,
     resources: &mut resources::Fonts,
 ) -> RendererOutput {
