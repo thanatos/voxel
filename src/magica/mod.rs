@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess};
+use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Device;
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
@@ -19,15 +18,14 @@ use io::{Chunk, ChunkData, Color, Voxel};
 /// A MagicaVoxel model that's been uploaded to the GPU, and can be rendered.
 pub struct MagicaModel {
     vertex_buffer: Arc<CpuAccessibleBuffer<[MagicaVertex]>>,
-    index_buffer: IndexBuffer,
+    index_buffer: crate::model_util::IndexBuffer,
 }
 
 impl MagicaModel {
     pub fn new(device: Arc<Device>, top_chunk: &Chunk) -> anyhow::Result<MagicaModel> {
-        let mut unique_vertexes = HashSet::<(u16, u16, u16, u8)>::new();
-        let mut vertexes = Vec::new();
         let voxels = find_xyzi_data(&top_chunk)?;
         let palette = find_rgba_data(&top_chunk)?;
+        let mut model_builder = crate::model_util::ModelBuilder::new();
         for voxel in voxels {
             eprintln!("dump Voxel: {:?}", voxel);
             for side in CUBE_VERTEXES.iter() {
@@ -45,55 +43,23 @@ impl MagicaModel {
                     let x = u16::from(voxel.x) + u16::from(vertex.0);
                     let y = u16::from(voxel.y) + u16::from(vertex.1);
                     let z = u16::from(voxel.z) + u16::from(vertex.2);
-                    unique_vertexes.insert((x, y, z, voxel.color_index));
-                    vertexes.push((x, y, z, voxel.color_index));
+                    model_builder.push_vertex((x, y, z, voxel.color_index));
                 }
             }
         }
-        // Convert the vertexes to a vector, and map vertexes to offsets so that we can build the
-        // index buffer:
-        let unique_vertexes = unique_vertexes.into_iter().collect::<Vec<_>>();
-        let vertex_to_index = unique_vertexes
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(idx, v)| (v, idx))
-            .collect::<HashMap<_, _>>();
 
-        // And now compute the index buffer:
-        let indexes = vertexes
-            .iter()
-            .map(|v| {
-                vertex_to_index
-                    .get(v)
-                    .map(|v| *v)
-                    .expect("vertex to index map should have had an entry for every vertex")
-            })
-            .collect::<Vec<_>>();
-
-        // Convert unique_vertexes to the format we need on the GPU:
-        let unique_vertexes = unique_vertexes
-            .into_iter()
-            .map(|(x, y, z, color_idx)| MagicaVertex {
+        let (vertex_buffer, index_buffer) = model_builder.into_gpu(
+            device,
+            |(x, y, z, color_idx)| MagicaVertex {
                 position: [f32::from(x), y as f32, z as f32],
                 color: palette
                     .get(usize::from(color_idx))
                     .map(|c| [u32::from(c.r), u32::from(c.g), u32::from(c.b)])
                     .expect("palette should contain a color for every index"),
-            })
-            .collect::<Vec<_>>();
-
-        // Now ship it all to the GPU:
-        // TODO: use DeviceLocalBuffer, maybe ImmutableBuffer.
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::vertex_buffer(),
+            },
             false,
-            unique_vertexes,
-        )
-        .unwrap();
+        );
 
-        let index_buffer = to_index_buffer(device, false, &indexes);
         Ok(MagicaModel {
             vertex_buffer,
             index_buffer,
@@ -180,63 +146,6 @@ fn find_rgba_data(top_chunk: &Chunk) -> anyhow::Result<&[Color]> {
     palette.ok_or_else(|| anyhow::anyhow!("no RGBA chunk in model"))
 }
 
-enum IndexBuffer {
-    U8(Arc<CpuAccessibleBuffer<[u8]>>),
-    U16(Arc<CpuAccessibleBuffer<[u16]>>),
-    U32(Arc<CpuAccessibleBuffer<[u32]>>),
-}
-
-impl IndexBuffer {
-    fn len(&self) -> vulkano::DeviceSize {
-        match self {
-            Self::U8(b) => b.len(),
-            Self::U16(b) => b.len(),
-            Self::U32(b) => b.len(),
-        }
-    }
-}
-
-fn to_index_buffer(device: Arc<Device>, u8_ext: bool, indexes: &[usize]) -> IndexBuffer {
-    let max_index = indexes.iter().max().expect("expected at least one index");
-    match (max_index, u8_ext) {
-        (0..=0xff, true) => CpuAccessibleBuffer::from_iter(
-            device,
-            BufferUsage::index_buffer(),
-            false,
-            indexes
-                .iter()
-                .map(|v| u8::try_from(*v).expect("all indexes should have fit in a u8")),
-        )
-        .map(IndexBuffer::U8)
-        .unwrap(),
-        (0..=0xff, false) => CpuAccessibleBuffer::from_iter(
-            device,
-            BufferUsage::index_buffer(),
-            false,
-            indexes
-                .iter()
-                .map(|v| u16::try_from(*v).expect("all indexes should have fit in a u8, let alone a u16")),
-        )
-        .map(IndexBuffer::U16)
-        .unwrap(),
-        (0x100..=0xffff, _) => CpuAccessibleBuffer::from_iter(
-            device,
-            BufferUsage::index_buffer(),
-            false,
-            indexes
-                .iter()
-                .map(|v| u16::try_from(*v).expect("all indexes should have fit in a u16")),
-        )
-        .map(IndexBuffer::U16)
-        .unwrap(),
-        (0x10000..=0xffff_ffff, _) => unimplemented!(),
-        _ => panic!(
-            "max index of {} exceeds GPU limits of 32-bit indexes",
-            max_index
-        ),
-    }
-}
-
 pub(super) struct MagicaShaders {
     vs: Arc<ShaderModule>,
     fs: Arc<ShaderModule>,
@@ -280,11 +189,7 @@ impl<L> MagicaAutoCmdExt for AutoCommandBufferBuilder<L> {
         self
             .bind_pipeline_graphics(pipeline)
             .bind_vertex_buffers(0, model.vertex_buffer.clone());
-        match &model.index_buffer {
-            IndexBuffer::U8(buf) => self.bind_index_buffer(buf.clone()),
-            IndexBuffer::U16(buf) => self.bind_index_buffer(buf.clone()),
-            IndexBuffer::U32(buf) => self.bind_index_buffer(buf.clone()),
-        };
+        model.index_buffer.bind(self);
         self
             .draw_indexed(
                 u32::try_from(model.index_buffer.len()).unwrap(),

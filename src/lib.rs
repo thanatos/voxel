@@ -27,6 +27,7 @@ mod camera;
 mod init;
 pub mod magica;
 mod matrix;
+mod model_util;
 mod png;
 pub mod resources;
 pub mod sw_image;
