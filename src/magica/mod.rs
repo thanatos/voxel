@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Device;
@@ -202,7 +203,8 @@ impl<L> MagicaAutoCmdExt for AutoCommandBufferBuilder<L> {
     }
 }
 
-#[derive(Default, Clone)]
+#[repr(C)]
+#[derive(Default, Clone, Copy, Zeroable, Pod)]
 struct MagicaVertex {
     position: [f32; 3],
     color: [u32; 3],

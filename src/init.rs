@@ -5,14 +5,15 @@ use std::ffi::CString;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
+use ash::vk::{Handle as AshHandle};
 use log::{debug, info, trace};
 use sdl2::video::Window;
 use uuid::Uuid;
-use vulkano::device::{physical::PhysicalDevice, Device, Features, Queue};
+use vulkano::device::{physical::PhysicalDevice, Device, Features, Queue, QueueCreateInfo};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{self, Instance, InstanceExtensions};
 use vulkano::render_pass::RenderPass;
-use vulkano::swapchain::{Surface, Swapchain};
+use vulkano::swapchain::{Surface, SurfaceApi, Swapchain, SwapchainCreateInfo};
 use vulkano::{Handle, VulkanObject};
 
 pub struct Init {
@@ -79,7 +80,7 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
     let instance_extensions =
         InstanceExtensions::from(instance_extensions.iter().map(|v| v.as_c_str()));
 
-    let (instance, device, queue) = init_vulkan(&instance_extensions, select_device);
+    let (instance, device, queue) = init_vulkan(instance_extensions, select_device);
 
     trace!("Creating surface in SDL.");
     let surface_handle = window
@@ -96,7 +97,9 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
     let surface = {
         let ash_surface = ash::vk::SurfaceKHR::from_raw(surface_handle);
         let instance_clone = instance.clone();
-        unsafe { Surface::from_raw_surface(instance_clone, ash_surface, ()) }
+        // FIXME: what is the right value here, and why?
+        let api = SurfaceApi::DisplayPlane;
+        unsafe { Surface::from_raw_surface(instance_clone, ash_surface, api, ()) }
     };
     trace!("Vulkan Surface created from SDL surface.");
     let surface = ManuallyDrop::new(Arc::new(surface));
@@ -120,13 +123,14 @@ pub struct RenderDetails {
     pub swapchain: Arc<Swapchain<()>>,
     pub swapchain_images: Vec<Arc<SwapchainImage<()>>>,
     pub render_pass: Arc<RenderPass>,
-    pub dimensions: [u32; 2],
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderDetailsError {
     #[error("failed to query surface capabilities: {0}")]
-    FailedToQueryDeviceCapabilities(vulkano::swapchain::CapabilitiesError),
+    FailedToQuerySurfaceCapabilities(vulkano::device::physical::SurfacePropertiesError),
+    #[error("failed to query surface formats: {0}")]
+    FailedToQuerySurfaceFormats(vulkano::device::physical::SurfacePropertiesError),
     #[error("the surface's .current_extent was None; we expect the surface to have an extent")]
     ExpectedSurfaceToHaveExtent,
     #[error("failed to create Swapchain: {0}")]
@@ -143,14 +147,19 @@ impl RenderDetails {
         info!("Creating RenderDetails…");
 
         // Swapchain
-        let (swapchain, images, dimensions, format) = {
+        let (swapchain, images, format) = {
             trace!("Querying surface capabilities");
-            let caps = surface
-                .capabilities(device.physical_device())
-                .map_err(RenderDetailsError::FailedToQueryDeviceCapabilities)?;
+            let caps = device
+                .physical_device()
+                .surface_capabilities(&surface, Default::default())
+                .map_err(RenderDetailsError::FailedToQuerySurfaceCapabilities)?;
+            let supported_formats = device
+                .physical_device()
+                .surface_formats(&surface, Default::default())
+                .map_err(RenderDetailsError::FailedToQuerySurfaceFormats)?;
 
             debug!("Supported formats");
-            for supported_format in &caps.supported_formats {
+            for supported_format in &supported_formats {
                 debug!("  {:?}", supported_format);
             }
 
@@ -163,7 +172,7 @@ impl RenderDetails {
             // Just use the first format
             // TODO: Do we need to be more aware of this value, or can we just render into whatever we
             // get and not care? It seems like we'd *have* to care?
-            let (format, color_space) = caps.supported_formats[0];
+            let (format, color_space) = supported_formats[0];
             debug!("[TODO] Selected first format: {:?}", (format, color_space));
 
             // TODO: figure this out
@@ -173,21 +182,17 @@ impl RenderDetails {
                 ..ImageUsage::none()
             };
 
-            let dimensions = caps
-                .current_extent
-                .ok_or_else(|| RenderDetailsError::ExpectedSurfaceToHaveExtent)?;
-
-            let (swapchain, images) = Swapchain::start(device.clone(), surface)
-                .num_images(buffers_count)
-                .format(format)
-                .dimensions(dimensions)
-                .usage(usage)
-                .transform(caps.current_transform)
-                .color_space(color_space)
-                .build()
+            let swapchain_create_info  = SwapchainCreateInfo {
+                min_image_count: buffers_count,
+                image_format: Some(format),
+                image_color_space: color_space,
+                image_usage: usage,
+                ..Default::default()
+            };
+            let (swapchain, images) = Swapchain::new(device.clone(), surface, swapchain_create_info)
                 .map_err(RenderDetailsError::FailedToCreateSwapchain)?;
 
-            (swapchain, images, dimensions, format)
+            (swapchain, images, format)
         };
 
         // Render pass
@@ -213,7 +218,6 @@ impl RenderDetails {
             swapchain,
             swapchain_images: images,
             render_pass,
-            dimensions,
         })
     }
 
@@ -222,30 +226,41 @@ impl RenderDetails {
         init: &Init,
     ) -> Result<bool, vulkano::swapchain::SwapchainCreationError> {
         debug!("Recreating swap chain");
-        let dimensions = {
-            let (new_width, new_height) = init.window().size();
-            [new_width, new_height]
-        };
-        match self.swapchain.recreate().dimensions(dimensions).build() {
+        let create_info = self.swapchain.create_info();
+        match self.swapchain.recreate(create_info) {
             Ok((new_swapchain, new_images)) => {
                 self.swapchain = new_swapchain;
                 self.swapchain_images = new_images;
-                self.dimensions = dimensions;
                 Ok(true)
             }
             // These happen. Examples ignore them. What exactly is going on here?
-            Err(vulkano::swapchain::SwapchainCreationError::UnsupportedDimensions) => Ok(false),
+            //Err(vulkano::swapchain::SwapchainCreationError::UnsupportedDimensions) => Ok(false),
             Err(err) => Err(err),
         }
     }
 }
 
 fn init_vulkan(
-    ext: &InstanceExtensions,
+    ext: InstanceExtensions,
     select_device: Option<Uuid>,
 ) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
-    let instance = Instance::new(None, instance::Version::V1_1, ext, None)
-        .expect("failed to create Vulkan instance");
+    let instance = Instance::new(instance::InstanceCreateInfo {
+        application_name: Some("Voxel".to_owned()),
+        // TODO: manage this somehow?
+        application_version: instance::Version {
+            major: 1,
+            minor: 0,
+            patch: 0,
+        },
+        enabled_extensions: ext,
+        enabled_layers: Vec::new(),
+        engine_name: None,
+        engine_version: Default::default(),
+        function_pointers: None,
+        max_api_version: Default::default(),
+        ..Default::default()
+    })
+    .expect("failed to create Vulkan instance");
 
     for physical_device in PhysicalDevice::enumerate(&instance) {
         let properties = physical_device.properties();
@@ -300,9 +315,14 @@ fn init_vulkan(
         };
         let (device, mut queues) = Device::new(
             physical_device,
-            &Features::none(),
-            &device_extensions,
-            [(queue_family, 0.5)].iter().cloned(),
+            vulkano::device::DeviceCreateInfo {
+                enabled_extensions: device_extensions,
+                enabled_features: Features::none(),
+                queue_create_infos: vec![
+                    QueueCreateInfo::family(queue_family),
+                ],
+                ..Default::default()
+            },
         )
         .expect("Failed to create Vulkan device");
         let queue = queues.next().unwrap();

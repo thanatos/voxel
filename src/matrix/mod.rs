@@ -1,5 +1,7 @@
 use std::fmt;
 
+use bytemuck::{Pod, Zeroable};
+
 pub mod projection;
 mod screen;
 pub mod transformations;
@@ -9,7 +11,7 @@ pub use screen::screen_matrix;
 /// A 4x4 matrix of single-precision floats.
 // repr(C) because vulkano will transmit it to the GPU via memcpy().
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Matrix {
     /// Column-major 2D matrix data
     data: [[f32; 4]; 4],

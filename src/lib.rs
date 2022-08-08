@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use log::{debug, info, trace};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -252,7 +253,6 @@ pub fn main() {
             &render_details.swapchain,
             &render_details.swapchain_images,
             &render_details.render_pass,
-            render_details.dimensions,
             &pipelines,
             &uniform_buffer_pool,
             &blit_uniform_buffer_pool,
@@ -306,7 +306,7 @@ enum RendererOutput {
 }
 
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct UniformBufferObject {
     model: Matrix,
     view: Matrix,
@@ -315,7 +315,7 @@ struct UniformBufferObject {
 }
 
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct BlitUniform {
     proj: Matrix,
 }
@@ -429,7 +429,6 @@ fn render_frame(
     swapchain: &Arc<Swapchain<()>>,
     swapchain_images: &[Arc<SwapchainImage<()>>],
     render_pass: &Arc<RenderPass>,
-    dimensions: [u32; 2],
     pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     blit_uniform_buffer_pool: &CpuBufferPool<BlitUniform>,
@@ -444,15 +443,30 @@ fn render_frame(
     let framebuffers = swapchain_images
         .iter()
         .map(|image| {
-            let image_view = ImageView::new(image.clone()).unwrap();
-            let fb = Framebuffer::start(render_pass.clone())
-                .add(image_view)
-                .unwrap()
-                .build()
-                .unwrap();
+            let image_view = ImageView::new_default(image.clone()).unwrap();
+            let fb = Framebuffer::new(
+                render_pass.clone(),
+                vulkano::render_pass::FramebufferCreateInfo {
+                    attachments: vec![image_view],
+                    ..Default::default()
+                },
+            ).unwrap();
             fb
         })
         .collect::<Vec<_>>();
+
+    trace!(target: "render_frame", "acquire_next_image");
+    let (image_index, _, acquire_future) = {
+        match vulkano::swapchain::acquire_next_image(swapchain.clone(), None) {
+            Ok(r) => r,
+            Err(AcquireError::OutOfDate) => return RendererOutput::SwapchainNeedsRecreating,
+            Err(err) => panic!("Failed to acquire next image: {}", err),
+        }
+    };
+
+    let framebuffer = &framebuffers[image_index];
+
+    let dimensions = framebuffer.extent();
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
@@ -479,30 +493,19 @@ fn render_frame(
     let subbuffer_lines = Arc::new(uniform_buffer_pool.next(ubo).unwrap());
 
     let descriptor_set_normal = {
-        let layout = pipelines.normal_pipeline.layout().descriptor_set_layouts()[0].clone();
+        let layout = pipelines.normal_pipeline.layout().set_layouts()[0].clone();
         {
             let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_normal);
             PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
         }
     };
     let descriptor_set_lines = {
-        let layout = pipelines.lines_pipeline.layout().descriptor_set_layouts()[0].clone();
+        let layout = pipelines.lines_pipeline.layout().set_layouts()[0].clone();
         {
             let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_lines);
             PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
         }
     };
-
-    trace!(target: "render_frame", "acquire_next_image");
-    let (image_index, _, acquire_future) = {
-        match vulkano::swapchain::acquire_next_image(swapchain.clone(), None) {
-            Ok(r) => r,
-            Err(AcquireError::OutOfDate) => return RendererOutput::SwapchainNeedsRecreating,
-            Err(err) => panic!("Failed to acquire next image: {}", err),
-        }
-    };
-
-    let framebuffer = &framebuffers[image_index];
 
     trace!(target: "render_frame", "AutoCommandBufferBuilder");
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -648,11 +651,13 @@ fn render_frame(
             proj: crate::matrix::screen_matrix(dimensions[0], dimensions[1]),
         };
         let subbuffer_blit = blit_uniform_buffer_pool.next(blit_uniform).unwrap();
-        let layout = pipelines.blit_pipeline.layout().descriptor_set_layouts()[0].clone();
+        let layout = pipelines.blit_pipeline.layout().set_layouts()[0].clone();
         {
             let write_buffer = WriteDescriptorSet::buffer(0, subbuffer_blit);
-            let sampler = vulkano::sampler::Sampler::simple_repeat_linear_no_mipmap(device.clone()).unwrap();
-            let image_view = vulkano::image::view::ImageView::new(image.clone()).unwrap();
+            let sampler = vulkano::sampler::Sampler::new(
+                device.clone(), vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+            ).unwrap();
+            let image_view = vulkano::image::view::ImageView::new_default(image.clone()).unwrap();
             let write_sampler = WriteDescriptorSet::image_view_sampler(1, image_view, sampler);
             PersistentDescriptorSet::new(layout, [write_buffer, write_sampler]).unwrap()
         }
@@ -840,14 +845,16 @@ void main() {
     }
 }
 
-#[derive(Default, Copy, Clone)]
+#[repr(C)]
+#[derive(Default, Clone, Copy, Pod, Zeroable)]
 struct Vertex {
     position: [f32; 2],
 }
 
 vulkano::impl_vertex!(Vertex, position);
 
-#[derive(Default, Copy, Clone)]
+#[repr(C)]
+#[derive(Default, Clone, Copy, Pod, Zeroable)]
 struct BlitImageVertex {
     position: [u32; 2],
     texture_coord: [f32; 2],
@@ -855,10 +862,31 @@ struct BlitImageVertex {
 
 vulkano::impl_vertex!(BlitImageVertex, position, texture_coord);
 
-#[derive(Default, Copy, Clone)]
+#[repr(C)]
+#[derive(Default, Clone, Copy, Pod, Zeroable)]
 struct Line {
     position: [f32; 3],
     color: [f32; 3],
 }
 
 vulkano::impl_vertex!(Line, position, color);
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Pod, Zeroable)]
+struct VulkanPixel {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl From<sw_image::Pixel> for VulkanPixel {
+    fn from(pixel: sw_image::Pixel) -> VulkanPixel {
+        VulkanPixel {
+            r: pixel.r,
+            g: pixel.g,
+            b: pixel.b,
+            a: pixel.a,
+        }
+    }
+}

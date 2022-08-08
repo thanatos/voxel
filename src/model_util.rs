@@ -5,6 +5,7 @@ use std::collections::{hash_map, HashMap};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use bytemuck::Pod;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess};
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Device;
@@ -37,7 +38,7 @@ impl<V: Clone + Eq + Hash> ModelBuilder<V> {
         self.index_map.push(index);
     }
 
-    pub fn into_gpu<F, U: 'static>(self, device: Arc<Device>, vertex_map: F, u8_ext: bool) -> (Arc<CpuAccessibleBuffer<[U]>>, IndexBuffer) where F: Fn(V) -> U {
+    pub fn into_gpu<F, U: Pod + Send + Sync + 'static>(self, device: Arc<Device>, vertex_map: F, u8_ext: bool) -> (Arc<CpuAccessibleBuffer<[U]>>, IndexBuffer) where F: Fn(V) -> U {
         // TODO: use DeviceLocalBuffer, maybe ImmutableBuffer.
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
             device.clone(),
