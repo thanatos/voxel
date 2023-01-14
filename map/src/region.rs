@@ -77,7 +77,7 @@ WHERE
     AND chunk_z = ?
 ;
 ",
-            &[chunk_coord.x, chunk_coord.y, chunk_coord.z],
+            [chunk_coord.x, chunk_coord.y, chunk_coord.z],
             |row| {
                 Ok((
                     ChunkCompression::from_int(row.get_unwrap::<_, u8>(0)).unwrap(),
