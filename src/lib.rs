@@ -10,11 +10,14 @@ use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, TypedBufferAccess};
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, RenderPassBeginInfo, SubpassContents};
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::ClearValue;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
+use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
@@ -22,7 +25,7 @@ use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
-use vulkano::swapchain::{AcquireError, PresentInfo, Swapchain};
+use vulkano::swapchain::{AcquireError, Swapchain, SwapchainPresentInfo};
 use vulkano::sync::{FlushError, GpuFuture};
 
 mod camera;
@@ -132,11 +135,13 @@ pub fn main() {
     let magica_model = {
         static MODEL: &'static [u8] = include_bytes!("vox/logo.vox");
         let top_chunk = magica::io::from_reader(std::io::Cursor::new(MODEL)).unwrap();
-        magica::MagicaModel::new(init.vulkan_device.clone(), &top_chunk).unwrap()
+        magica::MagicaModel::new(&render_details.memory_allocator, &top_chunk).unwrap()
     };
 
-    let uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
-    let blit_uniform_buffer_pool = CpuBufferPool::uniform_buffer(init.vulkan_device.clone());
+    let uniform_buffer_pool =
+        CpuBufferPool::uniform_buffer(render_details.memory_allocator.clone());
+    let blit_uniform_buffer_pool =
+        CpuBufferPool::uniform_buffer(render_details.memory_allocator.clone());
 
     let mut previous_frame_end: Option<Box<dyn GpuFuture>> =
         Some(Box::new(vulkano::sync::now(init.vulkan_device.clone())));
@@ -254,6 +259,9 @@ pub fn main() {
             &render_details.swapchain,
             &render_details.swapchain_images,
             &render_details.render_pass,
+            &render_details.memory_allocator,
+            &render_details.descriptor_set_allocator,
+            &render_details.command_buffer_allocator,
             &pipelines,
             &uniform_buffer_pool,
             &blit_uniform_buffer_pool,
@@ -427,9 +435,12 @@ fn render_frame(
     device: &Arc<vulkano::device::Device>,
     queue: &Arc<vulkano::device::Queue>,
     previous_frame_end: Box<dyn GpuFuture>,
-    swapchain: &Arc<Swapchain<()>>,
-    swapchain_images: &[Arc<SwapchainImage<()>>],
+    swapchain: &Arc<Swapchain>,
+    swapchain_images: &[Arc<SwapchainImage>],
     render_pass: &Arc<RenderPass>,
+    memory_allocator: &StandardMemoryAllocator,
+    descriptor_set_allocator: &StandardDescriptorSetAllocator,
+    command_buffer_allocator: &StandardCommandBufferAllocator,
     pipelines: &Pipelines,
     uniform_buffer_pool: &CpuBufferPool<UniformBufferObject>,
     blit_uniform_buffer_pool: &CpuBufferPool<BlitUniform>,
@@ -465,9 +476,16 @@ fn render_frame(
         }
     };
 
-    let framebuffer = &framebuffers[image_index];
+    let framebuffer = &framebuffers[usize::try_from(image_index).unwrap()];
 
     let dimensions = framebuffer.extent();
+
+    let mut builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator,
+        queue.queue_family_index(),
+        vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
 
     let fov_vert = 90. * std::f32::consts::PI / 180.;
     let aspect = (dimensions[0] as f32) / (dimensions[1] as f32);
@@ -497,24 +515,26 @@ fn render_frame(
         let layout = pipelines.normal_pipeline.layout().set_layouts()[0].clone();
         {
             let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_normal);
-            PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
+            PersistentDescriptorSet::new(
+                descriptor_set_allocator,
+                layout,
+                std::iter::once(write_descriptor_set),
+            ).unwrap()
         }
     };
     let descriptor_set_lines = {
         let layout = pipelines.lines_pipeline.layout().set_layouts()[0].clone();
         {
             let write_descriptor_set = WriteDescriptorSet::buffer(0, subbuffer_lines);
-            PersistentDescriptorSet::new(layout, std::iter::once(write_descriptor_set)).unwrap()
+            PersistentDescriptorSet::new(
+                descriptor_set_allocator,
+                layout,
+                std::iter::once(write_descriptor_set),
+            ).unwrap()
         }
     };
 
     trace!(target: "render_frame", "AutoCommandBufferBuilder");
-    let mut builder = AutoCommandBufferBuilder::primary(
-        device.clone(),
-        queue.queue_family_index(),
-        vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
 
     let viewport = Viewport {
         origin: [0.0, 0.0],
@@ -524,7 +544,7 @@ fn render_frame(
 
     // Don't need to do this every frame!
     let vertex_buffer = CpuAccessibleBuffer::from_iter(
-        device.clone(),
+        memory_allocator,
         BufferUsage {
             vertex_buffer: true,
             ..BufferUsage::empty()
@@ -604,7 +624,7 @@ fn render_frame(
     };
 
     let lines_vert_buf = CpuAccessibleBuffer::from_iter(
-        device.clone(),
+        memory_allocator,
         BufferUsage {
             vertex_buffer: true,
             ..BufferUsage::empty()
@@ -614,10 +634,10 @@ fn render_frame(
     )
     .unwrap();
 
-    let (image, (image_w, image_h), image_future) = {
+    let (image, (image_w, image_h)) = {
         let t_image = text_rendering::render_text("Hello, world.", &mut resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}, &resources.deja_vu_cache).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
-            queue.device().clone(),
+            memory_allocator,
             BufferUsage {
                 transfer_src: true,
                 ..BufferUsage::empty()
@@ -633,23 +653,24 @@ fn render_frame(
             height,
             array_layers: 1,
         };
-        let (image, future) = vulkano::image::ImmutableImage::from_buffer(
+        let image = vulkano::image::ImmutableImage::from_buffer(
+            memory_allocator,
             rgba_pixel_data,
             dimensions,
             vulkano::image::MipmapsCount::One,
             vulkano::format::Format::R8G8B8A8_UNORM,
             //vulkano::image::ImageLayout::ShaderReadOnlyOptimal,
-            queue.clone(),
+            &mut builder,
         )
         .unwrap();
-        (image, (width, height), future)
+        (image, (width, height))
     };
 
     let blits_vert_buf = {
         let blits = screen_quad_to_triangle_fan((32, 5), (image_w, image_h));
 
         CpuAccessibleBuffer::from_iter(
-            device.clone(),
+            memory_allocator,
             BufferUsage {
                 vertex_buffer: true,
                 ..BufferUsage::empty()
@@ -672,7 +693,11 @@ fn render_frame(
             ).unwrap();
             let image_view = vulkano::image::view::ImageView::new_default(image.clone()).unwrap();
             let write_sampler = WriteDescriptorSet::image_view_sampler(1, image_view, sampler);
-            PersistentDescriptorSet::new(layout, [write_buffer, write_sampler]).unwrap()
+            PersistentDescriptorSet::new(
+                descriptor_set_allocator,
+                layout,
+                [write_buffer, write_sampler]
+            ).unwrap()
         }
     };
 
@@ -730,16 +755,11 @@ fn render_frame(
     trace!(target: "render_frame", "scheduling command buffer");
     let result = previous_frame_end
         .join(acquire_future)
-        .join(image_future)
         .then_execute(queue.clone(), command_buffer)
         .expect("then_execute failed")
         .then_swapchain_present(
             queue.clone(),
-            {
-                let mut present_info = PresentInfo::swapchain(swapchain.clone());
-                present_info.index = image_index;
-                present_info
-            },
+            SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
         )
         .then_signal_fence_and_flush();
     match result {

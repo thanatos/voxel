@@ -10,10 +10,13 @@ use log::{debug, info, trace};
 use sdl2::video::Window;
 use smallvec::SmallVec;
 use uuid::Uuid;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::device::{Device, Features, Queue, QueueCreateInfo};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{self, Instance, InstanceExtensions};
 use vulkano::library::VulkanLibrary;
+use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::render_pass::RenderPass;
 use vulkano::swapchain::{Surface, SurfaceApi, Swapchain, SwapchainCreateInfo};
 use vulkano::VulkanObject;
@@ -25,7 +28,7 @@ pub struct Init {
     pub queue: Arc<Queue>,
     pub event_pump: sdl2::EventPump,
 
-    surface: ManuallyDrop<Arc<Surface<()>>>,
+    surface: ManuallyDrop<Arc<Surface>>,
     window: ManuallyDrop<Window>,
 }
 
@@ -34,7 +37,7 @@ impl Init {
         &self.window
     }
 
-    pub fn surface(&self) -> &Arc<Surface<()>> {
+    pub fn surface(&self) -> &Arc<Surface> {
         &self.surface
     }
 }
@@ -85,7 +88,7 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
             // Vulkan handles, like `Instance`, are `u64`. They're not: they're opaque pointers.
             // `usize` would be a more appropriate type, and `u64` is flat out wrong on 32-bit
             // platforms.
-            let ash_handle = instance.internal_object().as_raw();
+            let ash_handle = instance.handle().as_raw();
             usize::try_from(ash_handle).expect("this should never fail")
         })
         .unwrap();
@@ -95,7 +98,11 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
         let instance_clone = instance.clone();
         // FIXME: what is the right value here, and why?
         let api = SurfaceApi::DisplayPlane;
-        unsafe { Surface::from_handle(instance_clone, ash_surface, api, ()) }
+        // The last parameter is documented as,
+        // > The window object that `handle` was created from must outlive the created `Surface`.
+        // > The `object` parameter can be used to ensure this.
+        // Should we be using this, instead of the `ManuallyDrop` above?
+        unsafe { Surface::from_handle(instance_clone, ash_surface, api, None) }
     };
     trace!("Vulkan Surface created from SDL surface.");
 
@@ -117,9 +124,12 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
 }
 
 pub struct RenderDetails {
-    pub swapchain: Arc<Swapchain<()>>,
-    pub swapchain_images: Vec<Arc<SwapchainImage<()>>>,
+    pub swapchain: Arc<Swapchain>,
+    pub swapchain_images: Vec<Arc<SwapchainImage>>,
     pub render_pass: Arc<RenderPass>,
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: StandardDescriptorSetAllocator,
+    pub command_buffer_allocator: StandardCommandBufferAllocator,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -139,7 +149,7 @@ pub enum RenderDetailsError {
 impl RenderDetails {
     pub fn init(
         device: Arc<Device>,
-        surface: Arc<Surface<()>>,
+        surface: Arc<Surface>,
     ) -> Result<RenderDetails, RenderDetailsError> {
         info!("Creating RenderDetails…");
 
@@ -195,7 +205,7 @@ impl RenderDetails {
 
         // Render pass
         let render_pass = vulkano::single_pass_renderpass!(
-            device,
+            device.clone(),
             attachments: {
                 color: {
                     load: Clear,
@@ -212,10 +222,18 @@ impl RenderDetails {
         )
         .map_err(RenderDetailsError::FailedToCreateRenderPass)?;
 
+        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+        let command_buffer_allocator =
+            StandardCommandBufferAllocator::new(device, Default::default());
+
         Ok(RenderDetails {
             swapchain,
             swapchain_images: images,
             render_pass,
+            memory_allocator,
+            descriptor_set_allocator,
+            command_buffer_allocator,
         })
     }
 

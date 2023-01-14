@@ -5,6 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Device;
+use vulkano::memory::allocator::MemoryAllocator;
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::ViewportState;
 use vulkano::pipeline::GraphicsPipeline;
@@ -23,7 +24,7 @@ pub struct MagicaModel {
 }
 
 impl MagicaModel {
-    pub fn new(device: Arc<Device>, top_chunk: &Chunk) -> anyhow::Result<MagicaModel> {
+    pub fn new(memory_allocator: &(impl MemoryAllocator + ?Sized), top_chunk: &Chunk) -> anyhow::Result<MagicaModel> {
         let voxels = find_xyzi_data(&top_chunk)?;
         let palette = find_rgba_data(&top_chunk)?;
         let mut model_builder = crate::model_util::ModelBuilder::new();
@@ -50,7 +51,7 @@ impl MagicaModel {
         }
 
         let (vertex_buffer, index_buffer) = model_builder.into_gpu(
-            device,
+            memory_allocator,
             |(x, y, z, color_idx)| MagicaVertex {
                 position: [f32::from(x), y as f32, z as f32],
                 color: palette
