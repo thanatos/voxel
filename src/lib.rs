@@ -10,8 +10,9 @@ use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, TypedBufferAccess};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, SubpassContents};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, RenderPassBeginInfo, SubpassContents};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+use vulkano::format::ClearValue;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
@@ -611,7 +612,7 @@ fn render_frame(
         let t_image = text_rendering::render_text("Hello, world.", &mut resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}, &resources.deja_vu_cache).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
             queue.device().clone(),
-            BufferUsage::transfer_source(),
+            BufferUsage::transfer_src(),
             false, // host_cached
             t_image.pixels().map(|p| (p.r, p.g, p.b, p.a)),
         )
@@ -667,9 +668,13 @@ fn render_frame(
     trace!(target: "render_frame", "begin_render_pass");
     builder
         .begin_render_pass(
-            framebuffer.clone(),
+            {
+                let mut rpbi = RenderPassBeginInfo::framebuffer(framebuffer.clone());
+                // A shade of blue, to clear the color attachment of the framebuffer to.
+                rpbi.clear_values.push(Some(ClearValue::Float([0.0, 0.25, 1.0, 1.0])));
+                rpbi
+            },
             SubpassContents::Inline,
-            vec![[0.0, 0.25, 1.0, 1.0].into()],
         )
         .unwrap()
         .set_viewport(0, [viewport])

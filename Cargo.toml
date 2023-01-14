@@ -14,7 +14,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.55"
-ash = "0.36.0"
+ash = "0.37.0"
 bytemuck = "1.11.0"
 env_logger = "0.7.1"
 freetype = "0.7.0"
@@ -24,8 +24,8 @@ sdl2 = "0.34.0"
 smallvec = "1.8.0"
 structopt = "0.3.26"
 thiserror = "1.0.30"
-vulkano = "0.29.0"
-vulkano-shaders = "0.29.0"
+vulkano = "0.30.0"
+vulkano-shaders = "0.30.0"
 uuid = "0.8.2"
 
 [dev-dependencies]
