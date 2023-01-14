@@ -42,7 +42,10 @@ impl<V: Clone + Eq + Hash> ModelBuilder<V> {
         // TODO: use DeviceLocalBuffer, maybe ImmutableBuffer.
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
             device.clone(),
-            BufferUsage::vertex_buffer(),
+            BufferUsage {
+                vertex_buffer: true,
+                ..Default::default()
+            },
             false,
             self.vertexes.into_iter().map(vertex_map),
         )
@@ -64,10 +67,14 @@ pub struct IndexBuffer(IndexBufferRepr);
 impl IndexBuffer {
     fn new(device: Arc<Device>, u8_ext: bool, indexes: &[usize]) -> IndexBuffer {
         let max_index = indexes.iter().max().expect("expected at least one index");
+        let buffer_usage = BufferUsage {
+            index_buffer: true,
+            ..Default::default()
+        };
         let repr = match (max_index, u8_ext) {
             (0..=0xff, true) => CpuAccessibleBuffer::from_iter(
                 device,
-                BufferUsage::index_buffer(),
+                buffer_usage,
                 false,
                 indexes
                     .iter()
@@ -77,7 +84,7 @@ impl IndexBuffer {
             .unwrap(),
             (0..=0xff, false) => CpuAccessibleBuffer::from_iter(
                 device,
-                BufferUsage::index_buffer(),
+                buffer_usage,
                 false,
                 indexes
                     .iter()
@@ -87,7 +94,7 @@ impl IndexBuffer {
             .unwrap(),
             (0x100..=0xffff, _) => CpuAccessibleBuffer::from_iter(
                 device,
-                BufferUsage::index_buffer(),
+                buffer_usage,
                 false,
                 indexes
                     .iter()
@@ -97,7 +104,7 @@ impl IndexBuffer {
             .unwrap(),
             (0x10000..=0xffff_ffff, _) => CpuAccessibleBuffer::from_iter(
                 device,
-                BufferUsage::index_buffer(),
+                buffer_usage,
                 false,
                 indexes
                     .iter()

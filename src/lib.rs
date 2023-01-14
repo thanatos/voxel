@@ -22,7 +22,7 @@ use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
-use vulkano::swapchain::{AcquireError, Swapchain};
+use vulkano::swapchain::{AcquireError, PresentInfo, Swapchain};
 use vulkano::sync::{FlushError, GpuFuture};
 
 mod camera;
@@ -490,8 +490,8 @@ fn render_frame(
         */
         t,
     };
-    let subbuffer_normal = Arc::new(uniform_buffer_pool.next(ubo.clone()).unwrap());
-    let subbuffer_lines = Arc::new(uniform_buffer_pool.next(ubo).unwrap());
+    let subbuffer_normal = Arc::new(uniform_buffer_pool.from_data(ubo.clone()).unwrap());
+    let subbuffer_lines = Arc::new(uniform_buffer_pool.from_data(ubo).unwrap());
 
     let descriptor_set_normal = {
         let layout = pipelines.normal_pipeline.layout().set_layouts()[0].clone();
@@ -511,7 +511,7 @@ fn render_frame(
     trace!(target: "render_frame", "AutoCommandBufferBuilder");
     let mut builder = AutoCommandBufferBuilder::primary(
         device.clone(),
-        queue.family(),
+        queue.queue_family_index(),
         vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
@@ -525,7 +525,10 @@ fn render_frame(
     // Don't need to do this every frame!
     let vertex_buffer = CpuAccessibleBuffer::from_iter(
         device.clone(),
-        BufferUsage::vertex_buffer(),
+        BufferUsage {
+            vertex_buffer: true,
+            ..BufferUsage::empty()
+        },
         false,
         vec![
             /*
@@ -602,7 +605,10 @@ fn render_frame(
 
     let lines_vert_buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
-        BufferUsage::vertex_buffer(),
+        BufferUsage {
+            vertex_buffer: true,
+            ..BufferUsage::empty()
+        },
         false,
         lines.into_iter(),
     )
@@ -612,7 +618,10 @@ fn render_frame(
         let t_image = text_rendering::render_text("Hello, world.", &mut resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}, &resources.deja_vu_cache).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
             queue.device().clone(),
-            BufferUsage::transfer_src(),
+            BufferUsage {
+                transfer_src: true,
+                ..BufferUsage::empty()
+            },
             false, // host_cached
             t_image.pixels().map(|p| (p.r, p.g, p.b, p.a)),
         )
@@ -641,7 +650,10 @@ fn render_frame(
 
         CpuAccessibleBuffer::from_iter(
             device.clone(),
-            BufferUsage::vertex_buffer(),
+            BufferUsage {
+                vertex_buffer: true,
+                ..BufferUsage::empty()
+            },
             false,
             blits.into_iter(),
         )
@@ -651,7 +663,7 @@ fn render_frame(
         let blit_uniform = BlitUniform {
             proj: crate::matrix::screen_matrix(dimensions[0], dimensions[1]),
         };
-        let subbuffer_blit = blit_uniform_buffer_pool.next(blit_uniform).unwrap();
+        let subbuffer_blit = blit_uniform_buffer_pool.from_data(blit_uniform).unwrap();
         let layout = pipelines.blit_pipeline.layout().set_layouts()[0].clone();
         {
             let write_buffer = WriteDescriptorSet::buffer(0, subbuffer_blit);
@@ -721,7 +733,14 @@ fn render_frame(
         .join(image_future)
         .then_execute(queue.clone(), command_buffer)
         .expect("then_execute failed")
-        .then_swapchain_present(queue.clone(), swapchain.clone(), image_index)
+        .then_swapchain_present(
+            queue.clone(),
+            {
+                let mut present_info = PresentInfo::swapchain(swapchain.clone());
+                present_info.index = image_index;
+                present_info
+            },
+        )
         .then_signal_fence_and_flush();
     match result {
         Ok(future) => RendererOutput::Rendering(Box::new(future)),

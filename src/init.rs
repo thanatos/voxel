@@ -1,20 +1,22 @@
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::convert::TryFrom;
-use std::ffi::CString;
+use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
-use ash::vk::{Handle as AshHandle};
+use ash::vk::Handle as AshHandle;
 use log::{debug, info, trace};
 use sdl2::video::Window;
+use smallvec::SmallVec;
 use uuid::Uuid;
-use vulkano::device::{physical::PhysicalDevice, Device, Features, Queue, QueueCreateInfo};
+use vulkano::device::{Device, Features, Queue, QueueCreateInfo};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{self, Instance, InstanceExtensions};
+use vulkano::library::VulkanLibrary;
 use vulkano::render_pass::RenderPass;
 use vulkano::swapchain::{Surface, SurfaceApi, Swapchain, SwapchainCreateInfo};
-use vulkano::{Handle, VulkanObject};
+use vulkano::VulkanObject;
 
 pub struct Init {
     pub sdl_context: sdl2::Sdl,
@@ -71,14 +73,8 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
         .build()
         .unwrap();
     trace!("SDL window created.");
-    let instance_extensions = window
-        .vulkan_instance_extensions()
-        .unwrap()
-        .into_iter()
-        .map(|v| CString::new(v).unwrap())
-        .collect::<Vec<_>>();
-    let instance_extensions =
-        InstanceExtensions::from(instance_extensions.iter().map(|v| v.as_c_str()));
+    let instance_extensions = window.vulkan_instance_extensions().unwrap();
+    let instance_extensions = InstanceExtensions::from_iter(instance_extensions);
 
     let (instance, device, queue) = init_vulkan(instance_extensions, select_device);
 
@@ -99,14 +95,15 @@ pub fn init_sdl_and_vulkan(select_device: Option<Uuid>) -> Init {
         let instance_clone = instance.clone();
         // FIXME: what is the right value here, and why?
         let api = SurfaceApi::DisplayPlane;
-        unsafe { Surface::from_raw_surface(instance_clone, ash_surface, api, ()) }
+        unsafe { Surface::from_handle(instance_clone, ash_surface, api, ()) }
     };
     trace!("Vulkan Surface created from SDL surface.");
-    let surface = ManuallyDrop::new(Arc::new(surface));
-    // NOTE: Do not add failures / exits from here to function end.
 
     // Finish
     info!("SDL & Vulkan initialized.");
+
+    let surface = ManuallyDrop::new(Arc::new(surface));
+    // NOTE: Do not add failures / exits from here to function end.
 
     Init {
         sdl_context,
@@ -128,9 +125,9 @@ pub struct RenderDetails {
 #[derive(Debug, thiserror::Error)]
 pub enum RenderDetailsError {
     #[error("failed to query surface capabilities: {0}")]
-    FailedToQuerySurfaceCapabilities(vulkano::device::physical::SurfacePropertiesError),
+    FailedToQuerySurfaceCapabilities(vulkano::device::physical::PhysicalDeviceError),
     #[error("failed to query surface formats: {0}")]
-    FailedToQuerySurfaceFormats(vulkano::device::physical::SurfacePropertiesError),
+    FailedToQuerySurfaceFormats(vulkano::device::physical::PhysicalDeviceError),
     #[error("the surface's .current_extent was None; we expect the surface to have an extent")]
     ExpectedSurfaceToHaveExtent,
     #[error("failed to create Swapchain: {0}")]
@@ -179,18 +176,19 @@ impl RenderDetails {
             // The created swapchain will be used as a color attachment for rendering.
             let usage = ImageUsage {
                 color_attachment: true,
-                ..ImageUsage::none()
+                ..ImageUsage::empty()
             };
 
-            let swapchain_create_info  = SwapchainCreateInfo {
+            let swapchain_create_info = SwapchainCreateInfo {
                 min_image_count: buffers_count,
                 image_format: Some(format),
                 image_color_space: color_space,
                 image_usage: usage,
                 ..Default::default()
             };
-            let (swapchain, images) = Swapchain::new(device.clone(), surface, swapchain_create_info)
-                .map_err(RenderDetailsError::FailedToCreateSwapchain)?;
+            let (swapchain, images) =
+                Swapchain::new(device.clone(), surface, swapchain_create_info)
+                    .map_err(RenderDetailsError::FailedToCreateSwapchain)?;
 
             (swapchain, images, format)
         };
@@ -244,25 +242,32 @@ fn init_vulkan(
     ext: InstanceExtensions,
     select_device: Option<Uuid>,
 ) -> (Arc<Instance>, Arc<Device>, Arc<Queue>) {
-    let instance = Instance::new(instance::InstanceCreateInfo {
-        application_name: Some("Voxel".to_owned()),
-        // TODO: manage this somehow?
-        application_version: instance::Version {
-            major: 1,
-            minor: 0,
-            patch: 0,
+    let vk_library = VulkanLibrary::new().expect("failed to init VulkanLibrary");
+    let instance = Instance::new(
+        vk_library,
+        instance::InstanceCreateInfo {
+            application_name: Some("Voxel".to_owned()),
+            // TODO: manage this somehow?
+            application_version: instance::Version {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
+            enabled_extensions: ext,
+            enabled_layers: Vec::new(),
+            engine_name: None,
+            engine_version: Default::default(),
+            max_api_version: Default::default(),
+            ..Default::default()
         },
-        enabled_extensions: ext,
-        enabled_layers: Vec::new(),
-        engine_name: None,
-        engine_version: Default::default(),
-        function_pointers: None,
-        max_api_version: Default::default(),
-        ..Default::default()
-    })
+    )
     .expect("failed to create Vulkan instance");
 
-    for physical_device in PhysicalDevice::enumerate(&instance) {
+    let physical_devices = instance
+        .enumerate_physical_devices()
+        .expect("failed to enumerate physical devices")
+        .collect::<SmallVec<[_; 2]>>();
+    for physical_device in physical_devices.iter() {
         let properties = physical_device.properties();
         let device_id = match properties.device_uuid {
             Some(b) => Cow::from(Uuid::from_slice(&b).unwrap().to_string()),
@@ -279,48 +284,52 @@ fn init_vulkan(
     }
 
     let physical_device = if let Some(id) = select_device {
-        PhysicalDevice::enumerate(&instance)
+        physical_devices
+            .into_iter()
             .filter(|pd| {
                 pd.properties()
                     .device_uuid
-                    .map(|id| Uuid::from_slice(&id).unwrap())
+                    .as_ref()
+                    .map(|id| Uuid::from_slice(id).unwrap())
                     == Some(id)
             })
             .next()
     } else {
-        PhysicalDevice::enumerate(&instance).next()
+        physical_devices.into_iter().next()
     };
     let physical_device = physical_device.expect("Failed to select Vulkan physical device");
     debug!("Selected first device: {:?}", physical_device);
 
-    for family in physical_device.queue_families() {
+    for family in physical_device.queue_family_properties() {
         debug!(
             "Found a queue family with {:?} queue(s); \
              supports_graphics = {:?}; supports_compute = {:?}",
-            family.queues_count(),
-            family.supports_graphics(),
-            family.supports_compute(),
+            family.queue_count,
+            family.queue_flags.graphics,
+            family.queue_flags.compute,
         );
     }
 
-    let queue_family = physical_device
-        .queue_families()
-        .find(|&q| q.supports_graphics())
+    let queue_family_index = physical_device
+        .queue_family_properties()
+        .iter()
+        .position(|q| q.queue_flags.graphics)
         .expect("Failed to find a queue family that supported graphics");
 
     let (device, queue) = {
         let device_extensions = vulkano::device::DeviceExtensions {
             khr_swapchain: true,
-            ..vulkano::device::DeviceExtensions::none()
+            ..vulkano::device::DeviceExtensions::empty()
         };
         let (device, mut queues) = Device::new(
             physical_device,
             vulkano::device::DeviceCreateInfo {
                 enabled_extensions: device_extensions,
-                enabled_features: Features::none(),
-                queue_create_infos: vec![
-                    QueueCreateInfo::family(queue_family),
-                ],
+                enabled_features: Features::empty(),
+                queue_create_infos: vec![QueueCreateInfo {
+                    queue_family_index: queue_family_index.try_into().unwrap(),
+                    ..Default::default()
+                }],
                 ..Default::default()
             },
         )
