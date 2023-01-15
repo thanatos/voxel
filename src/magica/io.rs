@@ -34,7 +34,7 @@ pub fn from_reader<R: Read + Seek>(mut reader: R) -> io::Result<Chunk> {
             top.child_chunk_size_remaining == 0
         };
         if should_pop {
-            println!("Pop.");
+            log::trace!("Pop.");
             let top = chunk_stack
                 .pop()
                 .expect("stack should always have states on it");
@@ -49,7 +49,7 @@ pub fn from_reader<R: Read + Seek>(mut reader: R) -> io::Result<Chunk> {
             }
         }
 
-        println!(
+        log::trace!(
             "At: {}, stack depth: {}",
             reader.stream_position()?,
             chunk_stack.len()
@@ -57,7 +57,7 @@ pub fn from_reader<R: Read + Seek>(mut reader: R) -> io::Result<Chunk> {
         let top = chunk_stack
             .last_mut()
             .expect("stack should always have states on it");
-        println!("Size remaining: {}", top.child_chunk_size_remaining);
+        log::trace!("Size remaining: {}", top.child_chunk_size_remaining);
         if top.child_chunk_size_remaining < 12 {
             return Err(invalid_data(
                 "too few bytes remaining in parent chunk to continue to read in children",
@@ -87,7 +87,7 @@ pub fn from_reader<R: Read + Seek>(mut reader: R) -> io::Result<Chunk> {
                 "chunk children length exceeded the length of all sub-chunks in the parent chunk",
             )
             })?;
-        println!(
+        log::trace!(
             "Pushing: {:?} (content len = {}, children len = {})",
             chunk_header.chunk_id, chunk_header.chunk_content_len, chunk_header.chunk_children_len,
         );
@@ -370,7 +370,7 @@ fn parse_chunk<R: Read>(
             ChunkData::Rgba { palette }
         }
         b"MATL" => {
-            println!("{:?}", content);
+            log::trace!("{:?}", content);
             let mut content_ptr = content.as_slice();
             let material_id = read_i32(&mut content_ptr)?;
             let mut dict = read_dict(&mut content_ptr)?;
@@ -416,25 +416,25 @@ fn parse_chunk<R: Read>(
 fn read_dict(mut read: impl Read) -> io::Result<HashMap<String, String>> {
     let kv_pairs = read_u32_as_usize(&mut read)?;
     let mut result = HashMap::new();
-    println!("Will read {} pairs.", kv_pairs);
+    log::trace!("Will read {} pairs.", kv_pairs);
     for _ in 0..kv_pairs {
         let k = read_string(&mut read)?;
         let v = read_string(&mut read)?;
-        println!("k = {:?}, v = {:?}.", k, v);
+        log::trace!("k = {:?}, v = {:?}.", k, v);
         result.insert(k, v);
     }
     Ok(result)
 }
 
 fn read_string(mut read: impl Read) -> io::Result<String> {
-    println!("read_string");
+    log::trace!("read_string");
     let buffer_len = read_u32_as_usize(&mut read)?;
-    println!("done read size ({})", buffer_len);
+    log::trace!("done read size ({})", buffer_len);
     let mut data = Vec::with_capacity(buffer_len);
     data.resize(buffer_len, 0);
-    println!("about to read_exact");
+    log::trace!("about to read_exact");
     read.read_exact(&mut data)?;
-    println!("done");
+    log::trace!("done");
     String::from_utf8(data).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
 }
 

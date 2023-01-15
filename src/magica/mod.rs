@@ -29,7 +29,7 @@ impl MagicaModel {
         let palette = find_rgba_data(&top_chunk)?;
         let mut model_builder = crate::model_util::ModelBuilder::new();
         for voxel in voxels {
-            eprintln!("dump Voxel: {:?}", voxel);
+            log::debug!("dump Voxel: {:?}", voxel);
             for side in CUBE_VERTEXES.iter() {
                 let side_vertexes = [
                     // Triangle 1
