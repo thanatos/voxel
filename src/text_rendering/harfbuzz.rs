@@ -18,8 +18,6 @@ impl HarfbuzzFont {
         if font == unsafe { hb_font_get_empty() } {
             panic!("failed to allocate Harfbuzz font");
         }
-        // XXX: This call can fail, but it doesn't report that to us!
-        unsafe { hb_ft_font_set_funcs(font) };
 
         HarfbuzzFont { inner: font }
     }
@@ -173,7 +171,7 @@ extern "C" {
     fn hb_font_get_empty() -> *mut hb_font_t;
     fn hb_font_destroy(font: *mut hb_font_t);
     fn hb_ft_font_create_referenced(face: freetype::freetype::FT_Face) -> *mut hb_font_t;
-    fn hb_ft_font_set_funcs(font: *mut hb_font_t);
+    //fn hb_ft_font_set_funcs(font: *mut hb_font_t);
 
     fn hb_buffer_create() -> *mut hb_buffer_t;
     fn hb_buffer_destroy(buffer: *mut hb_buffer_t);
