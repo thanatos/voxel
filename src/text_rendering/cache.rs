@@ -40,8 +40,7 @@ impl GlyphCache {
 
         let raw_face = face.as_mut_raw();
 
-        let err = unsafe { ft_lib::FT_Set_Char_Size(raw_face, 0, height, 0, 0) };
-        freetype::FtError::from_ft(err).map_err(CacheError::SetCharSize)?;
+        face.set_char_size(height).map_err(CacheError::SetCharSize)?;
 
         let err = unsafe {
             ft_lib::FT_Select_Charmap(raw_face, ft_lib::FT_Encoding_::FT_ENCODING_UNICODE)

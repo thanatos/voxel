@@ -67,6 +67,14 @@ impl FtFace {
         &self.library
     }
 
+    pub fn set_char_size(
+        &mut self,
+        char_height: freetype::freetype::FT_F26Dot6,
+    ) -> Result<(), FtError> {
+        let err = unsafe { freetype::freetype::FT_Set_Char_Size(self.face, 0, char_height, 0, 0) };
+        FtError::from_ft(err)
+    }
+
     pub(super) fn as_mut_raw(&mut self) -> freetype::freetype::FT_Face {
         self.face
     }

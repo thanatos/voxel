@@ -70,9 +70,8 @@ pub fn render_text(
 ) -> Result<SwImage, RenderError> {
     // TODO: allow specifying the height
     assert!(cache.for_height == 14 << 6);
+    face.set_char_size(14 << 6)?;
     let raw_face = face.as_mut_raw();
-    let err = unsafe { ft_lib::FT_Set_Char_Size(raw_face, 0, 14 << 6, 0, 0) };
-    freetype::FtError::from_ft(err)?;
     let mut hb_font = harfbuzz::HarfbuzzFont::from_freetype_face(raw_face);
     let mut buffer =
         harfbuzz::HarfbuzzBuffer::new().ok_or_else(|| RenderError::HarfbuzzBufferAllocFailed)?;
