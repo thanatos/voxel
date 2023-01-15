@@ -97,8 +97,7 @@ fn write_chunk_octree(chunk: &Chunk) -> ChunkOnDisk {
                     .get(&HashableRef(vd.0.as_ref().map(|arc| arc.as_ref())))
                     .unwrap();
                 blocks.push(0);
-                write_varint(&mut blocks, *block_id)
-                    .expect("vector writes cannot fail");
+                write_varint(&mut blocks, *block_id).expect("vector writes cannot fail");
                 loop {
                     let (parent, sub_cube) = match current_location.sub_cube() {
                         Some(t) => t,
@@ -124,10 +123,7 @@ fn write_chunk_octree(chunk: &Chunk) -> ChunkOnDisk {
         }
     }
 
-    ChunkOnDisk {
-        palette,
-        blocks,
-    }
+    ChunkOnDisk { palette, blocks }
 }
 
 /// Write a varint; this is not a CBOR varint, this is just used for encoding block IDs in the

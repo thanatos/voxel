@@ -322,9 +322,7 @@ fn init_vulkan(
         debug!(
             "Found a queue family with {:?} queue(s); \
              supports_graphics = {:?}; supports_compute = {:?}",
-            family.queue_count,
-            family.queue_flags.graphics,
-            family.queue_flags.compute,
+            family.queue_count, family.queue_flags.graphics, family.queue_flags.compute,
         );
     }
 

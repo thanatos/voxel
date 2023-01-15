@@ -69,6 +69,7 @@ impl MagicaModel {
     }
 }
 
+#[rustfmt::skip]
 static CUBE_VERTEXES: &[[(u8, u8, u8); 4]] = &[
     // Bottom face
     [

@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::text_rendering::freetype::{FtFace, FtLibrary};
 use crate::text_rendering::cache::GlyphCache;
+use crate::text_rendering::freetype::{FtFace, FtLibrary};
 
 pub struct Fonts {
     pub deja_vu: FtFace,

@@ -67,10 +67,7 @@ impl<T, BI: BlockInfo<T>> BlockOctree<T, BI> {
         let mut octree = HashMap::new();
         octree.insert(LocationCode::ROOT, OctreeNode::Present(root_block));
 
-        BlockOctree {
-            octree,
-            block_info,
-        }
+        BlockOctree { octree, block_info }
     }
 }
 

@@ -24,9 +24,7 @@ fn bench_octree_replace_volume(c: &mut Criterion) {
         let sub_area = LocationCode::ROOT.push_sub_cube(SubCube::LowerNe);
         tree.set_volume(sub_area, TestBlock(2));
         b.iter_batched(
-            || {
-                tree.clone()
-            },
+            || tree.clone(),
             |mut tree| {
                 tree.set_volume(LocationCode::ROOT, TestBlock(1));
             },

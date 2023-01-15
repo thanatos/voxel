@@ -162,7 +162,12 @@ pub fn render_text(
         image: SwImage::new(width, height),
         error: None,
         panic: None,
-        color: Pixel { r: 0, g: 0, b: 0, a: 0 },
+        color: Pixel {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
     };
     // Render:
     for (glyph, glyph_info) in glyphs.iter().zip(glyph_infos.iter()) {

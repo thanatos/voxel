@@ -296,14 +296,16 @@ mod tests {
         println!("{:?}", expect);
         assert!(items == expect);
     }
-    
+
     #[test]
     fn test_location_code_from_root_to_just_above_here() {
         let sub_area = LocationCode::ROOT.push_sub_cube(SubCube::LowerNe);
         let items = sub_area.from_root_to_just_above_here().collect::<Vec<_>>();
         assert!(items == &[LocationCode::ROOT]);
 
-        let items = LocationCode::ROOT.from_root_to_just_above_here().collect::<Vec<_>>();
+        let items = LocationCode::ROOT
+            .from_root_to_just_above_here()
+            .collect::<Vec<_>>();
         assert!(items == &[]);
     }
 }

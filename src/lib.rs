@@ -18,11 +18,11 @@ use vulkano::format::ClearValue;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::memory::allocator::StandardMemoryAllocator;
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{AcquireError, Swapchain, SwapchainPresentInfo};
@@ -36,8 +36,8 @@ mod model_util;
 mod png;
 pub mod resources;
 pub mod sw_image;
-mod timing;
 pub mod text_rendering;
+mod timing;
 
 use matrix::Matrix;
 
@@ -102,10 +102,8 @@ pub fn main() {
     info!("init_sdl_and_vulkan()");
     let mut init = init::init_sdl_and_vulkan(args.use_gpu_with_uuid);
     info!("init_render_details()");
-    let mut render_details = init::RenderDetails::init(
-        init.vulkan_device.clone(),
-        init.surface().clone(),
-    ).unwrap();
+    let mut render_details =
+        init::RenderDetails::init(init.vulkan_device.clone(), init.surface().clone()).unwrap();
 
     info!("Loading resources…");
     let mut resources = resources::Fonts::init(false).unwrap();
@@ -329,7 +327,10 @@ struct BlitUniform {
     proj: Matrix,
 }
 
-fn screen_quad_to_triangle_fan(pos: (u32, u32), size: (u32, u32)) -> SmallVec<[BlitImageVertex; 4]> {
+fn screen_quad_to_triangle_fan(
+    pos: (u32, u32),
+    size: (u32, u32),
+) -> SmallVec<[BlitImageVertex; 4]> {
     let mut vertexes = smallvec::SmallVec::new();
     vertexes.push(BlitImageVertex {
         position: [pos.0, pos.1 + size.1],
@@ -462,7 +463,8 @@ fn render_frame(
                     attachments: vec![image_view],
                     ..Default::default()
                 },
-            ).unwrap();
+            )
+            .unwrap();
             fb
         })
         .collect::<Vec<_>>();
@@ -519,7 +521,8 @@ fn render_frame(
                 descriptor_set_allocator,
                 layout,
                 std::iter::once(write_descriptor_set),
-            ).unwrap()
+            )
+            .unwrap()
         }
     };
     let descriptor_set_lines = {
@@ -530,7 +533,8 @@ fn render_frame(
                 descriptor_set_allocator,
                 layout,
                 std::iter::once(write_descriptor_set),
-            ).unwrap()
+            )
+            .unwrap()
         }
     };
 
@@ -689,15 +693,18 @@ fn render_frame(
         {
             let write_buffer = WriteDescriptorSet::buffer(0, subbuffer_blit);
             let sampler = vulkano::sampler::Sampler::new(
-                device.clone(), vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
-            ).unwrap();
+                device.clone(),
+                vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+            )
+            .unwrap();
             let image_view = vulkano::image::view::ImageView::new_default(image.clone()).unwrap();
             let write_sampler = WriteDescriptorSet::image_view_sampler(1, image_view, sampler);
             PersistentDescriptorSet::new(
                 descriptor_set_allocator,
                 layout,
-                [write_buffer, write_sampler]
-            ).unwrap()
+                [write_buffer, write_sampler],
+            )
+            .unwrap()
         }
     };
 
@@ -708,7 +715,8 @@ fn render_frame(
             {
                 let mut rpbi = RenderPassBeginInfo::framebuffer(framebuffer.clone());
                 // A shade of blue, to clear the color attachment of the framebuffer to.
-                rpbi.clear_values.push(Some(ClearValue::Float([0.0, 0.25, 1.0, 1.0])));
+                rpbi.clear_values
+                    .push(Some(ClearValue::Float([0.0, 0.25, 1.0, 1.0])));
                 rpbi
             },
             SubpassContents::Inline,

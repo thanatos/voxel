@@ -1,7 +1,7 @@
 //! Utility code for building in-GPU vertex buffers/index buffers for models.
 
-use std::convert::TryFrom;
 use std::collections::{hash_map, HashMap};
+use std::convert::TryFrom;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -38,7 +38,15 @@ impl<V: Clone + Eq + Hash> ModelBuilder<V> {
         self.index_map.push(index);
     }
 
-    pub fn into_gpu<F, U: Pod + Send + Sync + 'static>(self, memory_allocator: &(impl MemoryAllocator + ?Sized), vertex_map: F, u8_ext: bool) -> (Arc<CpuAccessibleBuffer<[U]>>, IndexBuffer) where F: Fn(V) -> U {
+    pub fn into_gpu<F, U: Pod + Send + Sync + 'static>(
+        self,
+        memory_allocator: &(impl MemoryAllocator + ?Sized),
+        vertex_map: F,
+        u8_ext: bool,
+    ) -> (Arc<CpuAccessibleBuffer<[U]>>, IndexBuffer)
+    where
+        F: Fn(V) -> U,
+    {
         // TODO: use DeviceLocalBuffer, maybe ImmutableBuffer.
         // (This TODO was from an old version of Vulkano, 0.30.0 or earlier. Does it still apply?)
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
@@ -66,7 +74,11 @@ enum IndexBufferRepr {
 pub struct IndexBuffer(IndexBufferRepr);
 
 impl IndexBuffer {
-    fn new(memory_allocator: &(impl MemoryAllocator + ?Sized), u8_ext: bool, indexes: &[usize]) -> IndexBuffer {
+    fn new(
+        memory_allocator: &(impl MemoryAllocator + ?Sized),
+        u8_ext: bool,
+        indexes: &[usize],
+    ) -> IndexBuffer {
         let max_index = indexes.iter().max().expect("expected at least one index");
         let buffer_usage = BufferUsage {
             index_buffer: true,
@@ -87,9 +99,9 @@ impl IndexBuffer {
                 memory_allocator,
                 buffer_usage,
                 false,
-                indexes
-                    .iter()
-                    .map(|v| u16::try_from(*v).expect("all indexes should have fit in a u8, let alone a u16")),
+                indexes.iter().map(|v| {
+                    u16::try_from(*v).expect("all indexes should have fit in a u8, let alone a u16")
+                }),
             )
             .map(IndexBufferRepr::U16)
             .unwrap(),
