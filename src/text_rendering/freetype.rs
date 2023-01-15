@@ -31,12 +31,16 @@ pub struct FtFace {
 }
 
 impl FtFace {
-    pub fn new_from_buffer(library: Arc<Mutex<FtLibrary>>, buffer: Box<[u8]>) -> Result<FtFace, FtError> {
+    pub fn new_from_buffer(
+        library: Arc<Mutex<FtLibrary>>,
+        buffer: Box<[u8]>,
+    ) -> Result<FtFace, FtError> {
         let mut face: freetype::freetype::FT_Face = std::ptr::null_mut();
         let open_args = freetype::freetype::FT_Open_Args {
             flags: freetype::freetype::FT_OPEN_MEMORY,
             memory_base: buffer.as_ptr(),
-            memory_size: freetype::freetype::FT_Long::try_from(buffer.len()).map_err(|_| FtError::FaceOpenMemoryBadLen)?,
+            memory_size: freetype::freetype::FT_Long::try_from(buffer.len())
+                .map_err(|_| FtError::FaceOpenMemoryBadLen)?,
             pathname: std::ptr::null_mut(),
             stream: std::ptr::null_mut(),
             driver: std::ptr::null_mut(),
@@ -46,14 +50,8 @@ impl FtFace {
         {
             let mut library_lock = library.lock().unwrap();
             let raw_lib = library_lock.as_mut_raw();
-            let error = unsafe {
-                freetype::freetype::FT_Open_Face(
-                    raw_lib,
-                    &open_args,
-                    0,
-                    &mut face,
-                )
-            };
+            let error =
+                unsafe { freetype::freetype::FT_Open_Face(raw_lib, &open_args, 0, &mut face) };
             FtError::from_ft(error)?;
         }
         Ok(FtFace {
