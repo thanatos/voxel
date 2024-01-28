@@ -15,7 +15,7 @@ thiserror = "1.0.24"
 voxel_mod = {path = "../mod"}
 
 [dev-dependencies]
-criterion = "0.3.4"
+criterion = "0.4"
 
 [[bench]]
 name = "octree"
