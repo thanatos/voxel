@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Parser;
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 struct Args {
     path: PathBuf,
 }
 
 fn main() {
-    let args = Args::from_args();
+    let args = Args::parse();
 
     let module = voxel_mod::Module::load_from_path(args.path).unwrap();
     println!("{:#?}", module);

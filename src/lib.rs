@@ -2,11 +2,11 @@ use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
+use clap::Parser;
 use log::{debug, info, trace};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use smallvec::SmallVec;
-use structopt::StructOpt;
 use vulkano::buffer::cpu_access::CpuAccessibleBuffer;
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, TypedBufferAccess};
@@ -88,15 +88,15 @@ fn degrees_to_radians(degrees: f32) -> f32 {
     degrees * std::f32::consts::PI / 180.
 }
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 struct Args {
-    #[structopt(long)]
+    #[arg(long)]
     use_gpu_with_uuid: Option<uuid::Uuid>,
 }
 
 pub fn main() {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let args = Args::from_args();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    let args = Args::parse();
     info!("voxel started.");
 
     info!("init_sdl_and_vulkan()");
