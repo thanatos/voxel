@@ -1,3 +1,5 @@
+//! Routines for rendering a single glyph from a font.
+
 use std::any::Any;
 use std::convert::TryFrom;
 use std::os::raw::c_int;

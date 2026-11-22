@@ -639,7 +639,29 @@ fn render_frame(
     .unwrap();
 
     let (image, (image_w, image_h)) = {
-        let t_image = text_rendering::render_text("Hello, world.", &mut resources.deja_vu, sw_image::Pixel { r: 0, g: 255, b: 0, a: 255}, &resources.deja_vu_cache).unwrap();
+        let fmt_text = {
+            let mut t = text_rendering::FormattedText::new();
+            t.add_str("Hello, ", sw_image::Pixel { r: 0, g: 255, b: 0, a: 255 });
+            t.add_str("world. ", sw_image::Pixel { r: 0, g: 0, b: 255, a: 255 });
+            t.add_str(
+                &format!(
+                    "({:.1}, {:.1}, {:.1}); B: {:.2}",
+                    position.x,
+                    position.y,
+                    position.z,
+                    look.rotation_horz
+                ),
+                sw_image::Pixel {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+            );
+            t
+        };
+        let cache = text_rendering::cache::GlyphCache::empty(14 << 6);
+        let t_image = text_rendering::render_text(&fmt_text, &mut resources.deja_vu, &resources.deja_vu_cache /*&cache*/).unwrap();
         let rgba_pixel_data = CpuAccessibleBuffer::from_iter(
             memory_allocator,
             BufferUsage {
@@ -647,7 +669,7 @@ fn render_frame(
                 ..BufferUsage::empty()
             },
             false, // host_cached
-            t_image.pixels().map(|p| (p.r, p.g, p.b, p.a)),
+            t_image.pixels().map(VulkanPixel::from),
         )
         .unwrap();
         let width = t_image.width();
@@ -716,7 +738,7 @@ fn render_frame(
                 let mut rpbi = RenderPassBeginInfo::framebuffer(framebuffer.clone());
                 // A shade of blue, to clear the color attachment of the framebuffer to.
                 rpbi.clear_values
-                    .push(Some(ClearValue::Float([0.0, 0.25, 1.0, 1.0])));
+                    .push(Some(ClearValue::Float([0.0, 0.5, 1.0, 1.0])));
                 rpbi
             },
             SubpassContents::Inline,

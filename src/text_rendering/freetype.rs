@@ -76,6 +76,25 @@ impl FtFace {
     pub(super) fn as_mut_raw(&mut self) -> freetype::freetype::FT_Face {
         self.face
     }
+
+    #[warn(unsafe_op_in_unsafe_fn)]
+    pub(super) unsafe fn outline(&mut self) -> &mut freetype::freetype::FT_Outline {
+        let glyph_ptr = unsafe { *(self.face as freetype::freetype::FT_Face) }.glyph;
+        let glyph = unsafe { glyph_ptr.as_mut() };
+        let glyph = glyph.expect("Face glyph slot was null during call to outline()");
+        if glyph.format != freetype::freetype::FT_Glyph_Format_::FT_GLYPH_FORMAT_OUTLINE {
+            panic!("Loaded glyph was not an outline.");
+        }
+        &mut glyph.outline
+    }
+
+    /*
+    pub unsafe fn render_current_glyph_outline<T>(&mut self, user_func: fn() -> Result<(), FtError> {
+        if unsafe { *(*raw_face).glyph }.format != ft_lib::FT_Glyph_Format_::FT_GLYPH_FORMAT_OUTLINE {
+            return Err(FtError::GlyphIsNotOutline);
+        }
+    }
+    */
 }
 
 impl Drop for FtFace {
@@ -85,12 +104,23 @@ impl Drop for FtFace {
     }
 }
 
+/*
+extern "C" fn render_callback(y: std::os::raw::c_int, count: std::os::raw::c_int, spans: *const ft_lib::FT_Span, user: *mut std::os::raw::c_void) {
+    let spans = unsafe {
+        let slice = std::ptr::slice_from_raw_parts(spans, count);
+        &*slice
+    };
+}
+*/
+
 #[derive(Debug, thiserror::Error)]
 pub enum FtError {
     #[error("FreeType error: {0}")]
     Freetype(freetype::freetype::FT_Error),
     #[error("while opening a face, the length could not be converted to an FT_Long")]
     FaceOpenMemoryBadLen,
+    #[error("the selected glyph is not an outline")]
+    GlyphIsNotOutline,
 }
 
 impl FtError {

@@ -1,3 +1,7 @@
+//! Routines to render text.
+//!
+//! This module uses FreeType for glyph rendering, and HarfBuzz to do the layout of the glyphs.
+
 use std::convert::TryFrom;
 
 use ::freetype::freetype as ft_lib;
@@ -25,6 +29,7 @@ impl MaybeCachedGlyphMeasures<'_> {
     }
 }
 
+/// A span of text, with possibly different formatting for subspans, such as color.
 pub struct FormattedText {
     text: String,
     // Maps starting index → color

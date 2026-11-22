@@ -1,3 +1,5 @@
+//! An image, on the host.
+
 use std::convert::TryFrom;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

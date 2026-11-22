@@ -5,6 +5,7 @@ use crate::matrix::Matrix;
 //   glFrustum's documentation
 //   http://www.alexisbreust.fr/2018-game-engine-frustum-culling.html
 //   https://ksimek.github.io/2013/06/03/calibrated_cameras_in_opengl/
+//   https://johannesugb.github.io/gpu-programming/setting-up-a-proper-vulkan-projection-matrix/
 
 /// Builds a perspective projection matrix.
 pub fn perspective(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Matrix {
